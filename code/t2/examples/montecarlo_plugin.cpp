@@ -1,16 +1,3 @@
-/* montecarlo_plugin.cpp – montecarlo example using MAL_RESIZE_POLICY_CUSTOM
- * loaded from a shared-library plugin at runtime.
- *
- * The resize policy lives in montecarlo_plugin_policy.so (built from
- * montecarlo_plugin_policy.cpp). It is loaded with dlopen/dlsym via
- * mal_set_decide_resize_plugin() before mal_init().
- *
- * Usage:
- *   make run_montecarlo_plugin NP=8
- *   # or with a custom plugin path / symbol:
- *   POLICY_SO=./my_policy.so POLICY_FN=my_func mpirun -n 8 ./build/montecarlo_plugin
- */
-
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -21,15 +8,12 @@
 
 int main(int argc, char* argv[]) {
 
-	// Allow overriding the plugin path and symbol name via environment variables
-	// so the binary can be reused with any conforming policy .so.
 	const char* so_path  = std::getenv("POLICY_SO");
 	const char* fn_name  = std::getenv("POLICY_FN");
 
 	if (!so_path)  so_path = "build/montecarlo_plugin_policy.so";
 	if (!fn_name)  fn_name = "montecarlo_policy";
 
-	// Register the plugin and initialise the library.
 	mal_set_decide_resize_plugin(so_path, fn_name);
 	mal_init(MAL_RESIZE_POLICY_CUSTOM);
 
@@ -66,7 +50,7 @@ int main(int argc, char* argv[]) {
 
 	}
 
-	mal_finalize(); // also calls dlclose on the plugin handle
+	mal_finalize(); 
 
 	if (mal_rank() == 0) {
 
