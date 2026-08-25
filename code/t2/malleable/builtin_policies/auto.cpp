@@ -1,19 +1,3 @@
-// auto.cpp - the library's built-in binary-search resize policy. Written
-// against the exact same decide()-plugin contract (DecideResizeFunc,
-// EpochMetrics-only, no direct access to runtime internals) that an
-// experiments/decision/*.cpp plugin uses, and compiled directly into
-// libmalleable.a (it's a built-in, not something loaded at runtime) --
-// mal_init() registers it via a plain mal_set_decide_resize_func() call,
-// see malleable_runtime.cpp. Exposes three entry points
-// (decide_auto/decide_throughput/decide_efficiency), one per efficiency
-// threshold variant MalResizePolicy selects -- all three share the same
-// search logic, differing only in the constant passed in.
-//
-// No cross-rank state broadcast is needed here (unlike cost.cpp): a
-// newly-active rank starting a phase behind the rest of the team just makes
-// that epoch's consensus non-unanimous, which the runtime already handles
-// safely (skip, retry next epoch) -- see the design plan for the reasoning.
-
 #include "malleable.hpp"
 
 #include <algorithm>
@@ -58,10 +42,6 @@ bool load_balancing_enabled() {
 
 }
 
-// Tracks this rank's own single-process throughput baseline, replicating
-// what gather_epoch_metrics() used to do centrally for the auto policy only
-// -- moved here since it's auto-specific and the runtime no longer computes
-// it. Mirrors the original min_valid_s noise-filtering gate.
 void update_baseline(const EpochMetrics& m) {
 
 	if (m.active_n != 1 || m.global_thr <= kEpsThroughput) return;
@@ -389,10 +369,10 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 }
 
-} // namespace
+}
 
 ResizeDecision decide_auto(const EpochMetrics& m) { return decide_core(m, 0.6); }
 ResizeDecision decide_throughput(const EpochMetrics& m) { return decide_core(m, 0.0); }
 ResizeDecision decide_efficiency(const EpochMetrics& m) { return decide_core(m, 0.8); }
 
-} // namespace builtin_auto
+} 

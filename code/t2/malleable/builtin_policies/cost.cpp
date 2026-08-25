@@ -1,16 +1,3 @@
-// cost.cpp - the library's built-in cost-search resize policy, compiled
-// directly into libmalleable.a and registered by mal_init() via
-// mal_set_decide_resize_func()/mal_set_decide_resize_state_funcs() (see
-// malleable_runtime.cpp) -- same decide()-plugin contract an
-// experiments/decision/*.cpp plugin uses, just linked in rather than
-// dlopen'd, since it's a built-in known at compile time. Unlike auto.cpp,
-// this one's search state (best throughput seen, sample accumulator) is
-// history-dependent and can't be recomputed from EpochMetrics alone, so it
-// registers a save/load state pair -- the runtime broadcasts CostState from
-// rank 0 of the active communicator to every rank after each committed
-// resize, so a newly-active rank inherits the team's in-progress search
-// instead of starting cold.
-
 #include "malleable.hpp"
 
 #include <algorithm>
@@ -34,9 +21,6 @@ constexpr int kCostStopStreak = 3;
 constexpr int kCostSampleDwell = 1;
 constexpr double kCostEwmaAlpha = 0.5;
 
-// Exactly the fields the moved decide logic reads/writes across calls.
-// Broadcast wholesale to every rank in the active communicator after each
-// commit -- see cost_save_state/cost_load_state below.
 struct CostState {
 
 	Phase phase{Phase::NONE};
@@ -62,10 +46,6 @@ struct CostState {
 
 CostState g_state;
 
-// Not part of CostState / not broadcast: purely local per-rank imbalance
-// gate bookkeeping, same as auto.cpp's own copy -- it's fine for this to
-// briefly differ across ranks (it only ever proposes a same-size rebalance
-// to the size everyone already agrees on).
 int g_gate_fire_streak = 0;
 int g_gate_giveup_at_n = -1;
 
@@ -153,7 +133,7 @@ GateAction imbalance_gate(const EpochMetrics& m, bool gate_live, bool in_rebalan
 
 }
 
-} // namespace
+} 
 
 ResizeStateBlob cost_save_state() {
 
@@ -391,8 +371,6 @@ ResizeDecision decide(const EpochMetrics& m) {
 	case Phase::SAMPLE:
 	{
 
-		// A sampling sweep commits every epoch by design -- don't let the
-		// runtime's normal anti-thrashing cooldown throttle it.
 		out.skip_cooldown = true;
 
 		if (N != g_state.sample_target) {
@@ -519,4 +497,4 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 }
 
-} // namespace builtin_cost
+} 

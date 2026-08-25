@@ -1,14 +1,3 @@
-/* custom_policy.cpp – minimal example for MAL_RESIZE_POLICY_CUSTOM
- *
- * Implements a simple imbalance-based custom resize function:
- *   - Scale up by 2 ranks when imbalance_ratio > 1.3 and we are not at max.
- *   - Scale down by 2 ranks when all ranks are settled and we are above min.
- *   - Otherwise do nothing.
- *
- * Build: included in the Makefile as target 'custom_policy'.
- * Run:   make run_custom_policy NP=8
- */
-
 #include <algorithm>
 #include <cstdlib>
 #include <mpi.h>
@@ -21,7 +10,6 @@ static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 
 	const int universe = mal_size();
 
-	// Scale up: imbalanced and room to grow.
 	if (m.imbalance_ratio() > 1.3 && m.active_n < universe) {
 
 		d.should_resize = true;
@@ -30,7 +18,6 @@ static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 
 	}
 
-	// Scale down: everyone settled, more ranks than minimum useful.
 	if (m.any_settled && m.active_n > 2) {
 
 		d.should_resize = true;
@@ -39,7 +26,6 @@ static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 
 	}
 
-	// No resize.
 	return d;
 
 }

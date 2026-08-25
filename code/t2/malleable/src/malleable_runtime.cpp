@@ -682,12 +682,6 @@ void mal_init(MalResizePolicy policy) {
 	if (g.comm.u_rank == 0)
 		MAL_TRACE_META("universe_size", g.comm.u_size);
 
-	// Every non-CUSTOM policy is really just a built-in decide_resize_func
-	// registered under the hood, compiled directly into the library (see
-	// builtin_policies/*.cpp) -- unless the caller already registered one
-	// explicitly (in which case that wins). Dispatches on g.cfg.resize_policy
-	// (not the 'policy' argument directly), since load_env_config() above may
-	// have overridden it from MAL_RESIZE_POLICY.
 	if (g.cfg.resize_policy != MAL_RESIZE_POLICY_CUSTOM && g.cfg.decide_resize_func == nullptr) {
 
 		switch (g.cfg.resize_policy) {

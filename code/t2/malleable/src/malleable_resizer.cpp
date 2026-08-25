@@ -2296,10 +2296,6 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 	}
 
-	// Every MalResizePolicy (built-in or CUSTOM) resolves to a registered
-	// decide_resize_func at mal_init() time -- see mal_init()'s auto-wiring
-	// of the built-ins (compiled directly into the library from
-	// builtin_policies/*.cpp, not dlopen'd) for the non-CUSTOM values.
 	decision = g.cfg.decide_resize_func(m);
 	g.lb.last_decision_settled = decision.settled;
 	g.lb.last_decision_skip_cooldown = decision.skip_cooldown;

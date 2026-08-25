@@ -415,10 +415,10 @@ struct MalState {
 	struct Config {
 
 		MalResizePolicy resize_policy{MAL_RESIZE_POLICY_AUTO};
-		DecideResizeFunc decide_resize_func{nullptr}; // NOT atomic: must be set before mal_init()
-		void*            decide_resize_plugin_handle{nullptr}; // NOT atomic: dlopen handle, closed in mal_finalize()
-		ResizeStateSaveFunc decide_resize_state_save{nullptr}; // NOT atomic: must be set before mal_init()
-		ResizeStateLoadFunc decide_resize_state_load{nullptr}; // NOT atomic: must be set before mal_init()
+		DecideResizeFunc decide_resize_func{nullptr};
+		void*            decide_resize_plugin_handle{nullptr};
+		ResizeStateSaveFunc decide_resize_state_save{nullptr};
+		ResizeStateLoadFunc decide_resize_state_load{nullptr};
 		std::atomic<double> resize_min_horizon_epochs{2.0};
 		std::atomic<int> epoch_ms{kDefaultEpochIntervalMs};
 		std::atomic<int> epoch_change_mode{kDefaultEpochChangeMode};
@@ -569,15 +569,8 @@ struct MalState {
 
 		int my_slow_streak{0};
 
-		// Set from the last decide_resize_func() call's ResizeDecision.settled,
-		// read back into EpochMetrics.any_settled next epoch (see
-		// gather_epoch_metrics()). Policy-agnostic: any plugin can report
-		// its own convergence this way.
 		bool last_decision_settled{false};
 
-		// Set from the last decide_resize_func() call's
-		// ResizeDecision.skip_cooldown, consumed once by
-		// Resizer::commit_phase() right after the resize it applies to.
 		bool last_decision_skip_cooldown{false};
 
 	} lb;
