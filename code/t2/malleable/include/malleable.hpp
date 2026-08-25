@@ -152,6 +152,8 @@ struct ResizeDecision {
 	bool should_resize{false};
 	bool done{false};
 	int target_active_size{-1};
+	bool settled{false};
+	bool skip_cooldown{false};
 
 };
 
@@ -169,6 +171,12 @@ struct EpochMetrics {
 	double sum_rem_time{0.0};
 	int max_slow_streak{0};
 	bool any_settled{false};
+	int resize_commit_count{0};
+	int resize_cooldown_remaining{0};
+	int rebalance_cooldown_remaining{0};
+	double epoch_elapsed{0.0};
+	int epoch_interval_ms{0};
+	bool iterative_kernel{false};
 
 	double imbalance_ratio() const {
 
@@ -186,6 +194,19 @@ struct EpochMetrics {
 };
 
 using DecideResizeFunc = ResizeDecision (*)(const EpochMetrics& m);
+
+struct ResizeStateBlob {
+
+	const void* data{nullptr};
+	size_t len{0};
+
+};
+
+// Functions to save and load shared context
+using ResizeStateSaveFunc = ResizeStateBlob (*)();
+using ResizeStateLoadFunc = void (*)(const void* data, size_t len);
+void mal_set_decide_resize_state_funcs(ResizeStateSaveFunc save, ResizeStateLoadFunc load);
+void mal_set_decide_resize_state_plugin(const char* save_func_name, const char* load_func_name);
 
 template<typename T> struct MpiType;
 template<> struct MpiType<int> { static MPI_Datatype value() { return MPI_INT; } };
@@ -234,18 +255,16 @@ struct MalCollapseSpec {
 void mal_init(MalResizePolicy policy = MAL_RESIZE_POLICY_AUTO);
 void mal_finalize();
 
-/* Sets the user-provided function used to decide whether/how to resize when
- * MAL_RESIZE_POLICY_CUSTOM is used. Must be called before
- * mal_init(MAL_RESIZE_POLICY_CUSTOM). */
 void mal_set_decide_resize_func(DecideResizeFunc func);
 
-/* dlopen 'path', dlsym 'func_name' (must be extern "C"), and register the
- * result via mal_set_decide_resize_func(). Handle is dlclosed in
- * mal_finalize(). Must be called before mal_init(MAL_RESIZE_POLICY_CUSTOM). */
 void mal_set_decide_resize_plugin(const char* path, const char* func_name);
 
 void mal_set_epoch_interval_ms(int ms);
 void mal_set_resize_enabled(bool enabled);
+[[nodiscard]] bool mal_get_resize_enabled();
+
+void mal_set_resize_min_horizon_epochs(int epochs);
+
 void mal_set_attach_exec_mode(MalAttachExecMode mode);
 [[nodiscard]] MalAttachExecMode mal_get_attach_exec_mode();
 void mal_wait_attach_tasks();

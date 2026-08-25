@@ -9,14 +9,7 @@ constexpr double kEpsWeight = 1e-12;
 constexpr int kLbGatherFields = 2;
 constexpr int kFusedGatherFields = 1 + kLbGatherFields;
 constexpr int kMinResizeCooldownEpochs = 2;
-constexpr int kMinBaselineEpochs = 3;
-constexpr int kCostRecheckEpochs = 8;
-constexpr int kCostStopStreak = 3;
-constexpr int kCostSampleDwell = 1;
-constexpr double kResizeMinHorizonEpochs = 2.0;
 constexpr double kImbHi = 1.50;
-constexpr int kImbStreakNeeded = 3;
-constexpr int kMaxGateFires = 3;
 
 void mal_set_decide_resize_func(DecideResizeFunc func) {
 
@@ -24,13 +17,9 @@ void mal_set_decide_resize_func(DecideResizeFunc func) {
 
 }
 
-/* Loads 'path' with dlopen, resolves 'func_name' (must be extern "C" in the
- * plugin), and registers it via mal_set_decide_resize_func(). The handle is
- * closed automatically in mal_finalize(). Must be called before
- * mal_init(MAL_RESIZE_POLICY_CUSTOM). */
 void mal_set_decide_resize_plugin(const char* path, const char* func_name) {
 
-	dlerror(); // clear any stale error
+	dlerror(); 
 
 	void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
 	if (!handle) {
@@ -38,7 +27,7 @@ void mal_set_decide_resize_plugin(const char* path, const char* func_name) {
 		std::abort();
 	}
 
-	dlerror(); // clear before dlsym
+	dlerror(); 
 	void* sym = dlsym(handle, func_name);
 	const char* err = dlerror();
 	if (err) {
@@ -47,18 +36,55 @@ void mal_set_decide_resize_plugin(const char* path, const char* func_name) {
 		std::abort();
 	}
 
-	// Replace any previously loaded plugin handle.
 	if (g.cfg.decide_resize_plugin_handle) {
 		dlclose(g.cfg.decide_resize_plugin_handle);
 	}
 	g.cfg.decide_resize_plugin_handle = handle;
 
-	// void* -> function pointer: memcpy avoids C++ pedantic UB while remaining
-	// fully supported by POSIX (dlsym) and accepted by GCC/Clang.
 	DecideResizeFunc func;
 	static_assert(sizeof(func) == sizeof(sym), "function pointer size mismatch");
 	std::memcpy(&func, &sym, sizeof(func));
 	mal_set_decide_resize_func(func);
+
+}
+
+void mal_set_decide_resize_state_funcs(ResizeStateSaveFunc save, ResizeStateLoadFunc load) {
+
+	g.cfg.decide_resize_state_save = save;
+	g.cfg.decide_resize_state_load = load;
+
+}
+
+void mal_set_decide_resize_state_plugin(const char* save_func_name, const char* load_func_name) {
+
+	if (!g.cfg.decide_resize_plugin_handle) {
+		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "mal_set_decide_resize_state_plugin() called before mal_set_decide_resize_plugin()");
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	}
+
+	dlerror();
+	void* save_sym = dlsym(g.cfg.decide_resize_plugin_handle, save_func_name);
+	const char* err = dlerror();
+	if (err) {
+		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "dlsym(\"%s\") failed: %s", save_func_name, err);
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	}
+
+	dlerror();
+	void* load_sym = dlsym(g.cfg.decide_resize_plugin_handle, load_func_name);
+	err = dlerror();
+	if (err) {
+		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "dlsym(\"%s\") failed: %s", load_func_name, err);
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	}
+
+	ResizeStateSaveFunc save;
+	ResizeStateLoadFunc load;
+	static_assert(sizeof(save) == sizeof(save_sym), "function pointer size mismatch");
+	static_assert(sizeof(load) == sizeof(load_sym), "function pointer size mismatch");
+	std::memcpy(&save, &save_sym, sizeof(save));
+	std::memcpy(&load, &load_sym, sizeof(load));
+	mal_set_decide_resize_state_funcs(save, load);
 
 }
 
@@ -213,7 +239,7 @@ EpochMetrics gather_epoch_metrics() {
 
 	const double gate_elapsed_in = (g.comm.active != MPI_COMM_NULL) ? my_elapsed : -1.0;
 	const double neg_thr_in = (g.comm.active != MPI_COMM_NULL && my_thr > kEpsThroughput) ? -my_thr : -1e300;
-	const double settled_in = (g.lb.bs_phase == MalState::LoadBalance::Phase::COST_SETTLED) ? 1.0 : 0.0;
+	const double settled_in = g.lb.last_decision_settled ? 1.0 : 0.0;
 	double max_in[8] = { my_active_n, my_has_loop, my_thr, gate_elapsed_in, neg_thr_in, my_rem_time, (double)g.lb.my_slow_streak, settled_in };
 	double max_out[8] = { 0.0, 0.0, 0.0, -1.0, -1e300, 0.0, 0.0, 0.0 };
 	MPI_Allreduce(max_in, max_out, 8, MPI_DOUBLE, MPI_MAX, g.comm.universe);
@@ -248,46 +274,19 @@ EpochMetrics gather_epoch_metrics() {
 
 	}
 
-	if (m.active_n == 1 && m.global_thr > kEpsThroughput) {
+	(void)r0_elapsed;
 
-		const double min_valid_s = std::max(0.02, g.cfg.epoch_ms.load(std::memory_order_relaxed) * 0.0005);
+	m.resize_commit_count = g.timing.resize_count;
 
-		if (r0_elapsed >= min_valid_s) {
-
-			using Phase = MalState::LoadBalance::Phase;
-			const bool building = (g.lb.bs_phase == Phase::IDLE || g.lb.bs_phase == Phase::NEEDS_BASELINE);
-			const double alpha = building ? 0.5 : 0.9;
-
-			g.lb.thr_single_proc = (g.lb.thr_single_proc <= kEpsThroughput) ? m.global_thr : alpha * g.lb.thr_single_proc + (1.0 - alpha) * m.global_thr;
-
-			if (building) {
-
-				g.lb.bs_baseline_count++;
-
-			}
-
-		}
-
-	} else if (g.cfg.baseline_from_perrank.load(std::memory_order_relaxed) && m.active_n > 1 && g.lb.thr_single_proc <= kEpsThroughput && m.global_thr > kEpsThroughput) {
-
-		g.lb.thr_single_proc = m.global_thr / (double)m.active_n;
-		g.lb.bs_baseline_count = kMinBaselineEpochs;
-
-	}
+	if (g.lb.resize_cooldown > 0) g.lb.resize_cooldown--;
+	if (g.lb.same_size_rebalance_cooldown > 0) g.lb.same_size_rebalance_cooldown--;
+	m.resize_cooldown_remaining = g.lb.resize_cooldown;
+	m.rebalance_cooldown_remaining = g.lb.same_size_rebalance_cooldown;
+	m.epoch_elapsed = my_elapsed;
+	m.epoch_interval_ms = g.cfg.epoch_ms.load(std::memory_order_relaxed);
+	m.iterative_kernel = g.sync.iterative_kernel.load(std::memory_order_acquire);
 
 	return m;
-
-}
-
-static double get_efficiency_threshold() {
-
-	switch (g.cfg.resize_policy) {
-
-		case MAL_RESIZE_POLICY_THROUGHPUT: return 0.0;
-		case MAL_RESIZE_POLICY_EFFICIENCY: return 0.8;
-		default: return 0.6;
-
-	}
 
 }
 
@@ -1495,33 +1494,6 @@ void Resizer::apply_active() {
 
 	apply_pending_acc_resets();
 
-	if (g.cfg.resize_policy == MAL_RESIZE_POLICY_COST && g.comm.u_rank >= old_a_size_) {
-
-		using Phase = MalState::LoadBalance::Phase;
-
-		if (g.lb.bs_phase == Phase::COST_SAMPLE || g.lb.bs_phase == Phase::COST_DESCENT) {
-
-			MAL_LOG_L(MAL_LOG_DEBUG, "COST", "reactivated u_rank=%d: stale phase=%d -> COST_SETTLED (best_n=%d)", g.comm.u_rank, (int)g.lb.bs_phase, g.comm.a_size);
-
-			g.lb.bs_phase = Phase::COST_SETTLED;
-			g.lb.cost_best_n = g.comm.a_size;
-			g.lb.cost_settle_recheck = kCostRecheckEpochs;
-			g.lb.cost_stop_streak = 0;
-			g.lb.cost_prev_g = 0.0;
-			g.lb.cost_prev_n = g.comm.a_size;
-
-			g.lb.sample_target = 0;
-			g.lb.sample_min = 0;
-			g.lb.sample_dwell_left = 0;
-			g.lb.sample_meas_left = 0;
-			g.lb.sample_thr_accum = 0.0;
-			g.lb.sample_best_thr = 0.0;
-			g.lb.sample_best_n = 0;
-
-		}
-
-	}
-
 	if (target_cuts_.size() != (size_t)g.comm.a_size + 1) {
 
 		target_cuts_ = compute_target_cuts(total_rem_, g.comm.a_size);
@@ -2275,806 +2247,16 @@ void Resizer::commit_phase() {
 		g.lb.prev_resize_to = target_;
 
 		g.lb.my_slow_streak = 0;
-		g.lb.gate_fire_streak = 0;
-		g.lb.gate_giveup_at_n = -1;
 
-		const bool in_sample = (g.lb.bs_phase == MalState::LoadBalance::Phase::COST_SAMPLE);
-		g.lb.resize_cooldown = in_sample ? 0 : ((is_oscillation && !fast_resp) ? std::max(base_resize_cooldown * 2, 4) : base_resize_cooldown);
+		g.lb.resize_cooldown = g.lb.last_decision_skip_cooldown ? 0 : ((is_oscillation && !fast_resp) ? std::max(base_resize_cooldown * 2, 4) : base_resize_cooldown);
 
-		MAL_LOG_L(MAL_LOG_DEBUG, "RESIZE", "Resize %d->%d done in %.4f s (thr_1=%.1f iters/s, cooldown=%d%s)", old_a_size_, target_, commit_elapsed, g.lb.thr_single_proc, g.lb.resize_cooldown, is_oscillation ? ", oscillation" : "");
+		MAL_LOG_L(MAL_LOG_DEBUG, "RESIZE", "Resize %d->%d done in %.4f s (cooldown=%d%s)", old_a_size_, target_, commit_elapsed, g.lb.resize_cooldown, is_oscillation ? ", oscillation" : "");
 
 	}
 
 	MAL_TRACE_RESIZE(g.sync.compute_epoch.load(std::memory_order_acquire), old_a_size_, target_);
 	g.timing.resize_commit += commit_elapsed;
 	g.timing.resize_count++;
-
-}
-
-ResizeDecision decide_resize_fixed_sequence() {
-
-	ResizeDecision out;
-
-	if (!g.cfg.enabled.load(std::memory_order_relaxed)) {
-
-		return out;
-
-	}
-
-	size_t seq_idx = g.cfg.seq_idx.load(std::memory_order_relaxed);
-
-	if (seq_idx >= g.cfg.sequence.size()) {
-
-		return out;
-
-	}
-
-	int target = g.cfg.sequence[seq_idx];
-
-	if (target <= 0 || target > g.comm.u_size || target == g.comm.a_size) {
-
-		return out;
-
-	}
-
-	out.should_resize = true;
-	out.target_active_size = target;
-
-	return out;
-
-}
-
-enum class GateAction { Proceed, Defer, Rebalance };
-
-static GateAction imbalance_gate(const EpochMetrics& m, bool gate_live, bool in_rebalance_cooldown) {
-
-	const bool lb_enabled = g.cfg.load_balancing_enabled.load(std::memory_order_relaxed);
-
-	const bool imbalanced = (m.active_n > 1) && (m.max_slow_streak >= kImbStreakNeeded);
-
-	if (!gate_live || !lb_enabled || !imbalanced) {
-
-		g.lb.gate_fire_streak = 0;
-		g.lb.gate_giveup_at_n = -1;
-		return GateAction::Proceed;
-
-	}
-
-	if (g.lb.gate_giveup_at_n == m.active_n) {
-
-		return GateAction::Proceed;
-
-	}
-
-	if (in_rebalance_cooldown) {
-
-		return GateAction::Defer;
-
-	}
-
-	if (g.lb.gate_fire_streak >= kMaxGateFires) {
-
-		g.lb.gate_giveup_at_n = m.active_n;
-		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "imbalance gate: irreducible at N=%d (%d fires, slow_streak=%d) -> allow sizing", m.active_n, g.lb.gate_fire_streak, m.max_slow_streak);
-		return GateAction::Proceed;
-
-	}
-
-	g.lb.gate_fire_streak++;
-	return GateAction::Rebalance;
-
-}
-
-ResizeDecision decide_resize_auto(const EpochMetrics& m) {
-
-	ResizeDecision out;
-
-	if (m.global_remaining < kEpsDone || m.active_n <= 0) {
-
-		out.done = true;
-		return out;
-
-	}
-
-	if (g.lb.resize_cooldown > 0) {
-
-		g.lb.resize_cooldown--;
-		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "Resize skipped: resize_cooldown=%d", g.lb.resize_cooldown);
-		return out;
-
-	}
-
-	const bool in_rebalance_cooldown = (g.lb.same_size_rebalance_cooldown > 0);
-
-	if (g.lb.same_size_rebalance_cooldown > 0) {
-
-		g.lb.same_size_rebalance_cooldown--;
-
-	}
-
-	const int U = g.comm.u_size;
-
-	if (U == 1) {
-
-		return out;
-
-	}
-
-	using Phase = MalState::LoadBalance::Phase;
-	const double threshold = get_efficiency_threshold();
-
-	auto compute_efficiency = [&]() -> double {
-
-		const double thr_1 = g.lb.thr_single_proc;
-
-		if (thr_1 <= kEpsThroughput || m.global_thr <= kEpsThroughput || m.active_n <= 0) {
-
-			return -1.0;
-
-		}
-
-		const double speedup = m.global_thr / thr_1;
-		return speedup / (double)m.active_n;
-
-	};
-
-	{
-
-		const bool gate_live = !g.cfg.enabled.load(std::memory_order_relaxed) || (g.lb.bs_phase == Phase::EXPLORE_MAX && m.active_n == U) || g.lb.bs_phase == Phase::PROBING;
-
-		switch (imbalance_gate(m, gate_live, in_rebalance_cooldown)) {
-
-			case GateAction::Rebalance:
-				MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "imbalance gate: ratio=%.2f (>%.2f) -> same-size rebalance N=%d", m.imbalance_ratio(), kImbHi, m.active_n);
-				out.should_resize = true;
-				out.target_active_size = m.active_n;
-				return out;
-
-			case GateAction::Defer:
-				return out;
-
-			case GateAction::Proceed:
-				break;
-
-		}
-
-	}
-
-	auto log_probe = [&](const char* tag, int probe_n, double eff) {
-
-		if (g.comm.u_rank == 0) {
-
-			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs-%s probe=%d active=%d thr=%.1f thr_1=%.1f speedup=%.2f eff=%.3f threshold=%.2f [lo=%d hi=%d]", tag, probe_n, m.active_n, m.global_thr, g.lb.thr_single_proc, (g.lb.thr_single_proc > kEpsThroughput ? m.global_thr / g.lb.thr_single_proc : 0.0), eff, threshold, g.lb.bs_lo, g.lb.bs_hi);
-			MAL_TRACE_PROBE(g.sync.compute_epoch.load(std::memory_order_acquire), probe_n, m.active_n, m.global_thr, g.lb.thr_single_proc, (g.lb.thr_single_proc > kEpsThroughput ? m.global_thr / g.lb.thr_single_proc : 0.0), eff);
-
-		}
-
-	};
-
-	if (!g.cfg.enabled.load(std::memory_order_relaxed)) {
-
-		return out;
-
-	}
-
-	switch (g.lb.bs_phase) {
-
-	case Phase::IDLE:
-
-		if (g.lb.thr_single_proc <= kEpsThroughput) {
-
-			g.lb.bs_phase = Phase::NEEDS_BASELINE;
-			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: no baseline, going to N=1");
-
-			if (m.active_n != 1) {
-
-				out.should_resize = true;
-				out.target_active_size = 1;
-
-			}
-
-			return out;
-
-		}
-
-		g.lb.bs_lo = 1;
-		g.lb.bs_hi = U;
-		g.lb.bs_phase = Phase::EXPLORE_MAX;
-
-		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: baseline thr_1=%.1f, exploring N=%d", g.lb.thr_single_proc, U);
-
-		if (m.active_n != U) {
-
-			out.should_resize = true;
-			out.target_active_size = U;
-
-		}
-
-		return out;
-
-	case Phase::NEEDS_BASELINE:
-
-		if (g.lb.bs_baseline_count < kMinBaselineEpochs || g.lb.thr_single_proc <= kEpsThroughput) {
-
-			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: baseline %d/%d epochs thr_1=%.1f (waiting)", g.lb.bs_baseline_count, kMinBaselineEpochs, g.lb.thr_single_proc);
-			return out;
-
-		}
-
-		g.lb.bs_lo = 1;
-		g.lb.bs_hi = U;
-		g.lb.bs_baseline_count = 0;
-		g.lb.bs_phase = Phase::EXPLORE_MAX;
-
-		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: baseline ready thr_1=%.1f (%d epochs), going to N=%d", g.lb.thr_single_proc, kMinBaselineEpochs, U);
-
-		out.should_resize = true;
-		out.target_active_size = U;
-
-		return out;
-
-	case Phase::EXPLORE_MAX:
-
-		if (m.active_n != U) {
-
-			out.should_resize = true;
-			out.target_active_size = U;
-
-			return out;
-
-		}
-
-		{
-
-			const double eff = compute_efficiency();
-
-			if (eff < 0.0) {
-
-				return out;
-
-			}
-
-			log_probe("max", U, eff);
-
-			if (eff >= threshold) {
-
-				MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: N=%d meets threshold (eff=%.3f >= %.2f), entering PROBING", U, eff, threshold);
-				g.lb.bs_phase = Phase::PROBING;
-
-				return out;
-
-			}
-
-			g.lb.bs_lo = 1;
-			g.lb.bs_hi = U;
-			const int probe = (g.lb.bs_lo + g.lb.bs_hi) / 2;
-			g.lb.bs_phase = Phase::SEARCHING;
-			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: N=%d below threshold (eff=%.3f < %.2f), searching [%d,%d] probe=%d", U, eff, threshold, g.lb.bs_lo, g.lb.bs_hi, probe);
-
-			out.should_resize = true;
-			out.target_active_size = probe;
-
-			return out;
-
-		}
-
-	case Phase::SEARCHING:
-		{
-
-			const double eff = compute_efficiency();
-
-			if (eff < 0.0) {
-
-				return out;
-
-			}
-
-			log_probe("search", m.active_n, eff);
-
-			if (eff >= threshold) {
-
-				g.lb.bs_lo = m.active_n;
-
-			} else {
-
-				g.lb.bs_hi = m.active_n;
-
-			}
-
-			if (g.lb.bs_hi - g.lb.bs_lo <= 1) {
-
-				const int best = g.lb.bs_lo;
-				g.lb.bs_phase = Phase::PROBING;
-
-				MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: converged, PROBING from N=%d", best);
-
-				if (best != m.active_n) {
-
-					out.should_resize = true;
-					out.target_active_size = best;
-
-				}
-
-				return out;
-
-			}
-
-			const int probe = (g.lb.bs_lo + g.lb.bs_hi) / 2;
-
-			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: [%d,%d] next probe=%d", g.lb.bs_lo, g.lb.bs_hi, probe);
-
-			out.should_resize = true;
-			out.target_active_size = probe;
-
-			return out;
-
-		}
-
-	case Phase::PROBING:
-		{
-
-			const double eff = compute_efficiency();
-
-			if (eff < 0.0) {
-
-				return out;
-
-			}
-
-			log_probe("probe", m.active_n, eff);
-
-			if (eff >= threshold) {
-
-				if (m.active_n > g.lb.bs_lo) {
-
-					g.lb.bs_lo = m.active_n;
-					MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "probe: improved to bs_lo=%d", g.lb.bs_lo);
-
-				}
-
-				if (m.active_n < U) {
-
-					out.should_resize = true;
-					out.target_active_size = m.active_n + 1;
-
-					return out;
-
-				}
-
-				return out;
-
-			}
-
-			if (m.active_n > g.lb.bs_lo) {
-
-				g.lb.bs_hi = m.active_n;
-				MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "probe: N=%d failed (eff=%.3f < %.2f), returning to bs_lo=%d", m.active_n, eff, threshold, g.lb.bs_lo);
-				out.should_resize = true;
-				out.target_active_size = g.lb.bs_lo;
-
-			} else {
-
-				g.lb.bs_hi = m.active_n;
-				g.lb.bs_lo = std::max(1, m.active_n / 2);
-				g.lb.bs_phase = Phase::SEARCHING;
-				const int probe = (g.lb.bs_lo + g.lb.bs_hi) / 2;
-
-				MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "probe: home N=%d degraded (eff=%.3f < %.2f), re-searching [%d,%d] probe=%d", m.active_n, eff, threshold, g.lb.bs_lo, g.lb.bs_hi, probe);
-
-				if (probe != m.active_n) {
-
-					out.should_resize = true;
-					out.target_active_size = probe;
-
-				}
-
-			}
-
-			return out;
-
-		}
-
-	case Phase::COST_RAMP:
-	case Phase::COST_DESCENT:
-	case Phase::COST_SAMPLE:
-	case Phase::COST_SETTLED:
-		break;
-
-	}
-
-	return out;
-
-}
-
-ResizeDecision decide_resize_cost(const EpochMetrics& m) {
-
-	using Phase = MalState::LoadBalance::Phase;
-	ResizeDecision out;
-
-	if (m.global_remaining < kEpsDone || m.active_n <= 0) {
-
-		out.done = true;
-		return out;
-
-	}
-
-	const int U = g.comm.u_size;
-
-	if (U == 1) {
-
-		return out;
-
-	}
-
-	const int N = m.active_n;
-
-	if (m.global_thr <= kEpsThroughput) {
-
-		return out;
-
-	}
-
-	const double imb = m.imbalance_ratio();
-	const double thr_inst = (imb > 1.0) ? m.global_thr / imb : m.global_thr;
-
-	constexpr double kCostEwmaAlpha = 0.5;
-
-	if (N != g.lb.cost_prev_n) {
-
-		g.lb.cost_prev_g = 0.0;
-		g.lb.cost_prev_n = N;
-
-	}
-
-	const double thr = (g.lb.cost_prev_g > kEpsThroughput) ? kCostEwmaAlpha * g.lb.cost_prev_g + (1.0 - kCostEwmaAlpha) * thr_inst : thr_inst;
-	g.lb.cost_prev_g = thr;
-
-	if (g.lb.resize_cooldown > 0 && g.lb.bs_phase != Phase::COST_SAMPLE) {
-
-		g.lb.resize_cooldown--;
-		MAL_LOG_L(MAL_LOG_DEBUG, "COST", "Resize skipped: resize_cooldown=%d", g.lb.resize_cooldown);
-		return out;
-
-	}
-
-	double keep = g.cfg.cost_keep_fraction.load(std::memory_order_relaxed);
-
-	if (keep <= 0.0 || keep > 1.0) {
-
-		keep = 0.97;
-
-	}
-
-	if (g.lb.bs_phase != Phase::COST_RAMP && g.lb.bs_phase != Phase::COST_DESCENT && g.lb.bs_phase != Phase::COST_SAMPLE && g.lb.bs_phase != Phase::COST_SETTLED) {
-
-		g.lb.bs_phase = Phase::COST_RAMP;
-		g.lb.cost_best_g = 0.0;
-		g.lb.cost_best_n = U;
-		g.lb.cost_prev_g = 0.0;
-
-	}
-
-	{
-
-		const bool cost_gate_live = !(g.lb.bs_phase == Phase::COST_RAMP && N != U) && g.lb.bs_phase != Phase::COST_SAMPLE;
-		const bool cost_in_reb_cd = (g.lb.same_size_rebalance_cooldown > 0);
-
-		if (g.lb.same_size_rebalance_cooldown > 0) {
-
-			g.lb.same_size_rebalance_cooldown--;
-
-		}
-
-		switch (imbalance_gate(m, cost_gate_live, cost_in_reb_cd)) {
-
-			case GateAction::Rebalance:
-				MAL_LOG_L(MAL_LOG_DEBUG, "COST", "imbalance gate: ratio=%.2f (>%.2f) -> same-size rebalance N=%d", m.imbalance_ratio(), kImbHi, N);
-				g.lb.cost_prev_g = 0.0;
-
-				if (g.lb.bs_phase == Phase::COST_RAMP) {
-
-					g.lb.cost_best_g = 0.0;
-
-				}
-
-				out.should_resize = true;
-				out.target_active_size = N;
-				return out;
-
-			case GateAction::Defer:
-				return out;
-
-			case GateAction::Proceed:
-				break;
-
-		}
-
-	}
-
-	auto log_cost = [&](const char* tag) {
-
-		if (g.comm.u_rank == 0) {
-
-			MAL_LOG_L(MAL_LOG_DEBUG, "COST", "%s N=%d thr=%.1f peak=%.1f floor=%.1f keep=%.2f best_n=%d", tag, N, thr, g.lb.cost_best_g, g.lb.cost_best_g * keep, keep, g.lb.cost_best_n);
-
-		}
-
-	};
-
-	if (!g.cfg.enabled.load(std::memory_order_relaxed)) {
-
-		return out;
-
-	}
-
-	switch (g.lb.bs_phase) {
-
-	case Phase::COST_RAMP:
-
-		if (N != U) {
-
-			out.should_resize = true;
-			out.target_active_size = U;
-			return out;
-
-		}
-
-		if (g.lb.cost_best_g <= kEpsThroughput) {
-
-			g.lb.cost_best_g = thr;
-			log_cost("ramp-warmup");
-			return out;
-
-		}
-
-		g.lb.cost_best_g = thr;
-		g.lb.cost_best_n = U;
-		g.lb.cost_stop_streak = 0;
-
-		if (g.sync.iterative_kernel.load(std::memory_order_acquire) && U > 1) {
-
-			const int coarse_step = std::max(1, g.cfg.cost_sample_step.load(std::memory_order_relaxed));
-			g.lb.sample_best_thr = thr;
-			g.lb.sample_best_n = U;
-			g.lb.sample_coarse_step = coarse_step;
-			g.lb.sample_step = coarse_step;
-			g.lb.sample_fine = false;
-			g.lb.sample_min = std::max(1, U / 4);
-			g.lb.sample_target = std::max(g.lb.sample_min, U - coarse_step);
-			g.lb.sample_dwell_left = kCostSampleDwell;
-			g.lb.sample_meas_left = std::max(1, g.cfg.cost_sample_meas.load(std::memory_order_relaxed));
-			g.lb.sample_thr_accum = 0.0;
-			g.lb.bs_phase = Phase::COST_SAMPLE;
-			log_cost("sample-start");
-			out.should_resize = true;
-			out.target_active_size = g.lb.sample_target;
-			return out;
-
-		}
-
-		g.lb.bs_phase = Phase::COST_DESCENT;
-		log_cost("ramp-peak");
-
-		if (U > 1) {
-
-			out.should_resize = true;
-			out.target_active_size = U - 1;
-
-		} else {
-
-			g.lb.bs_phase = Phase::COST_SETTLED;
-			g.lb.cost_settle_recheck = kCostRecheckEpochs;
-
-		}
-
-		return out;
-
-	case Phase::COST_DESCENT:
-	{
-
-		if (thr > g.lb.cost_best_g) {
-
-			g.lb.cost_best_g = thr;
-
-		}
-
-		if (N >= g.lb.cost_best_n) {
-
-			if (N > 1) {
-
-				out.should_resize = true;
-				out.target_active_size = N - 1;
-
-			} else {
-
-				g.lb.bs_phase = Phase::COST_SETTLED;
-				g.lb.cost_settle_recheck = kCostRecheckEpochs;
-
-			}
-
-			return out;
-
-		}
-
-		const double floor = g.lb.cost_best_g * keep;
-
-		if (thr >= floor) {
-
-			g.lb.cost_best_n = N;
-			g.lb.cost_stop_streak = 0;
-			log_cost("descend-keep");
-
-			if (N > 1) {
-
-				out.should_resize = true;
-				out.target_active_size = N - 1;
-
-			} else {
-
-				g.lb.bs_phase = Phase::COST_SETTLED;
-				g.lb.cost_settle_recheck = kCostRecheckEpochs;
-
-			}
-
-			return out;
-
-		}
-
-		g.lb.cost_stop_streak++;
-
-		const bool iterative_knee = g.sync.iterative_kernel.load(std::memory_order_acquire);
-
-		if (iterative_knee && g.lb.cost_stop_streak < kCostStopStreak && N > 1) {
-
-			log_cost("descend-probe");
-			out.should_resize = true;
-			out.target_active_size = N - 1;
-
-			return out;
-
-		}
-
-		log_cost("descend-stop");
-		g.lb.cost_stop_streak = 0;
-		g.lb.bs_phase = Phase::COST_SETTLED;
-		g.lb.cost_settle_recheck = kCostRecheckEpochs;
-		out.should_resize = true;
-		out.target_active_size = g.lb.cost_best_n;
-
-		return out;
-
-	}
-
-	case Phase::COST_SAMPLE:
-	{
-
-		if (N != g.lb.sample_target) {
-
-			out.should_resize = true;
-			out.target_active_size = g.lb.sample_target;
-			return out;
-
-		}
-
-		if (g.lb.sample_dwell_left > 0) {
-
-			g.lb.sample_dwell_left--;
-			return out;
-
-		}
-
-		g.lb.sample_thr_accum += thr_inst;
-		g.lb.sample_meas_left--;
-
-		if (g.lb.sample_meas_left > 0) {
-
-			return out;
-
-		}
-
-		const double cand_thr = g.lb.sample_thr_accum / (double)std::max(1, g.cfg.cost_sample_meas.load(std::memory_order_relaxed));
-
-		if (g.comm.u_rank == 0) {
-
-			MAL_LOG_L(MAL_LOG_DEBUG, "COST", "sample N=%d thr=%.1f best_n=%d best_thr=%.1f", g.lb.sample_target, cand_thr, g.lb.sample_best_n, g.lb.sample_best_thr);
-
-		}
-
-		if (cand_thr > g.lb.sample_best_thr) {
-
-			g.lb.sample_best_thr = cand_thr;
-			g.lb.sample_best_n = g.lb.sample_target;
-
-		}
-
-		const int next = g.lb.sample_target - std::max(1, g.lb.sample_step);
-
-		if (next >= g.lb.sample_min) {
-
-			g.lb.sample_target = next;
-			g.lb.sample_dwell_left = kCostSampleDwell;
-			g.lb.sample_meas_left = std::max(1, g.cfg.cost_sample_meas.load(std::memory_order_relaxed));
-			g.lb.sample_thr_accum = 0.0;
-
-			out.should_resize = true;
-			out.target_active_size = next;
-			return out;
-
-		}
-
-		if (!g.lb.sample_fine && g.cfg.cost_sample_refine.load(std::memory_order_relaxed)) {
-
-			const int cstep = std::max(1, g.lb.sample_coarse_step);
-			const int fstep = std::max(1, cstep / 4);
-			const int fine_lo = std::max(1, g.lb.sample_best_n - cstep);
-			const int fine_hi = std::min(U, g.lb.sample_best_n + cstep);
-
-			if (fstep < cstep && fine_hi - fine_lo >= fstep) {
-
-				g.lb.sample_fine = true;
-				g.lb.sample_step = fstep;
-				g.lb.sample_min = fine_lo;
-				g.lb.sample_target = fine_hi;
-				g.lb.sample_dwell_left = kCostSampleDwell;
-				g.lb.sample_meas_left = std::max(1, g.cfg.cost_sample_meas.load(std::memory_order_relaxed));
-				g.lb.sample_thr_accum = 0.0;
-
-				if (g.comm.u_rank == 0) {
-
-					MAL_LOG_L(MAL_LOG_DEBUG, "COST", "coarse done (argmax N=%d) -> fine [%d..%d] step=%d", g.lb.sample_best_n, fine_lo, fine_hi, fstep);
-
-				}
-
-				out.should_resize = true;
-				out.target_active_size = fine_hi;
-				return out;
-
-			}
-
-		}
-
-		g.lb.cost_best_n = g.lb.sample_best_n;
-		g.lb.cost_best_g = g.lb.sample_best_thr;
-		g.lb.bs_phase = Phase::COST_SETTLED;
-		g.lb.cost_settle_recheck = kCostRecheckEpochs;
-
-		if (g.comm.u_rank == 0) {
-
-			MAL_LOG_L(MAL_LOG_INFO, "COST", "sample done -> N*=%d (thr=%.1f)", g.lb.sample_best_n, g.lb.sample_best_thr);
-
-		}
-
-		out.should_resize = true;
-		out.target_active_size = g.lb.sample_best_n;
-		return out;
-
-	}
-
-	case Phase::COST_SETTLED:
-
-		if (g.sync.iterative_kernel.load(std::memory_order_acquire)) {
-
-			return out;
-
-		}
-
-		if (g.lb.cost_settle_recheck > 0) {
-
-			g.lb.cost_settle_recheck--;
-			return out;
-
-		}
-
-		log_cost("recheck");
-		g.lb.bs_phase = Phase::COST_RAMP;
-		g.lb.cost_best_g = 0.0;
-		g.lb.cost_prev_g = 0.0;
-		return out;
-
-	default:
-		return out;
-
-	}
 
 }
 
@@ -3089,7 +2271,9 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 	}
 
-	if (g.cfg.resize_policy != MAL_RESIZE_POLICY_FIXED_SEQUENCE && m.global_thr > kEpsThroughput) {
+	const double min_horizon_epochs = g.cfg.resize_min_horizon_epochs.load(std::memory_order_relaxed);
+
+	if (min_horizon_epochs > 0.0 && m.global_thr > kEpsThroughput) {
 
 		const double epoch_secs = std::max(kEpsElapsed, g.cfg.epoch_ms.load(std::memory_order_relaxed) / 1000.0);
 
@@ -3102,7 +2286,7 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 		}
 
-		if (remaining_time < kResizeMinHorizonEpochs * epoch_secs) {
+		if (remaining_time < min_horizon_epochs * epoch_secs) {
 
 			decision.should_resize = false;
 			decision.target_active_size = -1;
@@ -3112,39 +2296,17 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 	}
 
-	switch (g.cfg.resize_policy) {
+	// Every MalResizePolicy (built-in or CUSTOM) resolves to a registered
+	// decide_resize_func at mal_init() time -- see mal_init()'s auto-wiring
+	// of the built-ins (compiled directly into the library from
+	// builtin_policies/*.cpp, not dlopen'd) for the non-CUSTOM values.
+	decision = g.cfg.decide_resize_func(m);
+	g.lb.last_decision_settled = decision.settled;
+	g.lb.last_decision_skip_cooldown = decision.skip_cooldown;
 
-		case MAL_RESIZE_POLICY_COST:
-
-			decision = decide_resize_cost(m);
-			break;
-
-		case MAL_RESIZE_POLICY_AUTO:
-		case MAL_RESIZE_POLICY_THROUGHPUT:
-		case MAL_RESIZE_POLICY_EFFICIENCY:
-
-			decision = decide_resize_auto(m);
-			break;
-
-		case MAL_RESIZE_POLICY_FIXED_SEQUENCE:
-
-			decision = decide_resize_fixed_sequence();
-			break;
-
-		case MAL_RESIZE_POLICY_CUSTOM:
-
-			decision = g.cfg.decide_resize_func(m);
-			if (decision.should_resize) {
-				decision.target_active_size = std::clamp(
-					decision.target_active_size, 1, g.comm.u_size);
-			}
-			break;
-
-		default:
-
-			decision = decide_resize_auto(m);
-			break;
-
+	if (decision.should_resize) {
+		decision.target_active_size = std::clamp(
+			decision.target_active_size, 1, g.comm.u_size);
 	}
 
 	if (!decision.should_resize) {
@@ -3291,28 +2453,40 @@ ResizeConsensus unanimous_resize_decision() {
 
 }
 
-void advance_default_sequence_after_commit() {
+static void sync_decide_resize_state_after_commit() {
 
-	if (!g.cfg.enabled.load(std::memory_order_relaxed)) {
+	if (g.comm.active == MPI_COMM_NULL || g.comm.a_size <= 1) return;
+	if (!g.cfg.decide_resize_state_save || !g.cfg.decide_resize_state_load) return;
 
-		return;
+	unsigned long len = 0;
+	std::vector<unsigned char> buf;
+
+	if (g.comm.a_rank == 0) {
+
+		ResizeStateBlob b = g.cfg.decide_resize_state_save();
+
+		if (b.len > (size_t)INT_MAX) {
+
+			MAL_LOG_L(MAL_LOG_ERROR, "STATE", "decide_resize_state_save() returned len=%zu, too large for MPI int count", b.len);
+			MPI_Abort(g.comm.active, 1);
+
+		}
+
+		len = (unsigned long)b.len;
+		buf.assign((const unsigned char*)b.data, (const unsigned char*)b.data + b.len);
 
 	}
 
-	size_t seq_idx = g.cfg.seq_idx.load(std::memory_order_relaxed);
+	MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, g.comm.active);
+	buf.resize(len);
 
-	if (seq_idx < g.cfg.sequence.size()) {
+	if (len > 0) {
 
-		seq_idx++;
-		g.cfg.seq_idx.store(seq_idx, std::memory_order_relaxed);
-
-	}
-
-	if (seq_idx >= g.cfg.sequence.size()) {
-
-		g.cfg.enabled.store(false, std::memory_order_relaxed);
+		MPI_Bcast(buf.data(), (int)len, MPI_BYTE, 0, g.comm.active);
 
 	}
+
+	g.cfg.decide_resize_state_load(buf.data(), (size_t)len);
 
 }
 
@@ -3340,34 +2514,6 @@ bool prepare_resize_if_needed() {
 	ResizeConsensus consensus = unanimous_resize_decision();
 	MAL_LOG_L(MAL_LOG_DEBUG, "EPOCH", "Consensus: should=%d target=%d active=%d", (int)consensus.should_resize, consensus.target, consensus.active_size);
 
-	const bool seq_policy = (g.cfg.resize_policy == MAL_RESIZE_POLICY_FIXED_SEQUENCE);
-
-	if (seq_policy && !consensus.unanimous) {
-
-		advance_default_sequence_after_commit();
-		MAL_LOG_L(MAL_LOG_WARN, "EPOCH", "Sequence divergence detected (non-unanimous decision); advancing sequence index to seek next common point");
-
-		return false;
-
-	}
-
-	if (seq_policy && consensus.unanimous && !consensus.should_resize) {
-
-		size_t seq_idx = g.cfg.seq_idx.load(std::memory_order_relaxed);
-		bool skipped = g.cfg.enabled.load(std::memory_order_relaxed) && seq_idx < g.cfg.sequence.size() && g.cfg.sequence[seq_idx] == consensus.active_size;
-
-		if (skipped) {
-
-			advance_default_sequence_after_commit();
-
-			MAL_LOG_L(MAL_LOG_DEBUG, "EPOCH", "Skipping no-op resize target=%d", consensus.active_size);
-
-		}
-
-		return false;
-
-	}
-
 	if (!consensus.unanimous || !consensus.should_resize) {
 
 		return false;
@@ -3393,11 +2539,7 @@ bool prepare_resize_if_needed() {
 
 	g.sync.resize_pending.store(false, std::memory_order_release);
 
-	if (seq_policy) {
-
-		advance_default_sequence_after_commit();
-
-	}
+	sync_decide_resize_state_after_commit();
 
 	MAL_LOG_L(MAL_LOG_DEBUG, "EPOCH", "Commit complete (active=%d)", g.comm.a_size);
 
@@ -3522,41 +2664,6 @@ inline bool process_step_request(std::chrono::steady_clock::time_point& next_ste
 
 	}
 
-	if (committed && g.comm.active != MPI_COMM_NULL && g.comm.a_size > 1 && g.cfg.resize_policy == MAL_RESIZE_POLICY_COST) {
-
-		double st[13];
-		st[0] = (double)(int)g.lb.bs_phase;
-		st[1] = (double)g.lb.sample_target;
-		st[2] = (double)g.lb.sample_step;
-		st[3] = (double)g.lb.sample_coarse_step;
-		st[4] = (double)g.lb.sample_min;
-		st[5] = g.lb.sample_fine ? 1.0 : 0.0;
-		st[6] = (double)g.lb.sample_dwell_left;
-		st[7] = (double)g.lb.sample_meas_left;
-		st[8] = (double)g.lb.sample_best_n;
-		st[9] = g.lb.sample_thr_accum;
-		st[10] = g.lb.sample_best_thr;
-		st[11] = (double)g.lb.cost_best_n;
-		st[12] = g.lb.cost_best_g;
-
-		MPI_Bcast(st, 13, MPI_DOUBLE, 0, g.comm.active);
-
-		g.lb.bs_phase = (MalState::LoadBalance::Phase)(int)std::lround(st[0]);
-		g.lb.sample_target = (int)std::lround(st[1]);
-		g.lb.sample_step = (int)std::lround(st[2]);
-		g.lb.sample_coarse_step = (int)std::lround(st[3]);
-		g.lb.sample_min = (int)std::lround(st[4]);
-		g.lb.sample_fine = (st[5] > 0.5);
-		g.lb.sample_dwell_left = (int)std::lround(st[6]);
-		g.lb.sample_meas_left = (int)std::lround(st[7]);
-		g.lb.sample_best_n = (int)std::lround(st[8]);
-		g.lb.sample_thr_accum = st[9];
-		g.lb.sample_best_thr = st[10];
-		g.lb.cost_best_n = (int)std::lround(st[11]);
-		g.lb.cost_best_g = st[12];
-
-	}
-
 	(void)start_tp; (void)needs_initial_rampup; (void)committed;
 
 	g.sync.step_buf = nullptr;
@@ -3636,7 +2743,7 @@ void progress_thread() {
 	#endif
 
 	std::vector<std::function<void()>> batch;
-	const bool needs_initial_rampup = g.comm.a_size > 0 && g.comm.a_size < g.comm.u_size && g.cfg.resize_policy != MAL_RESIZE_POLICY_FIXED_SEQUENCE;
+	const bool needs_initial_rampup = g.comm.a_size > 0 && g.comm.a_size < g.comm.u_size;
 	const auto worker_start_tp = std::chrono::steady_clock::now();
 	auto next_resize_check = worker_start_tp + std::chrono::milliseconds(needs_initial_rampup ? 1 : effective_epoch_interval_ms());
 

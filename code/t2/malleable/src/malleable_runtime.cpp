@@ -1,6 +1,11 @@
 #include "malleable_resizer.cpp"
 #include <csignal>
 #include <cstdlib>
+#include <string>
+
+#include "../builtin_policies/auto.cpp"
+#include "../builtin_policies/fixed_sequence.cpp"
+#include "../builtin_policies/cost.cpp"
 
 static void log_mpi_error(const char* where, int rc) {
 
@@ -146,6 +151,18 @@ void mal_set_resize_enabled(bool b) {
 
 }
 
+bool mal_get_resize_enabled() {
+
+	return g.cfg.enabled.load(std::memory_order_relaxed);
+
+}
+
+void mal_set_resize_min_horizon_epochs(int epochs) {
+
+	g.cfg.resize_min_horizon_epochs.store((double)epochs, std::memory_order_relaxed);
+
+}
+
 void mal_set_attach_exec_mode(MalAttachExecMode mode) {
 
 	if (mode != MAL_ATTACH_SYNC && mode != MAL_ATTACH_ASYNC) {
@@ -164,137 +181,6 @@ void mal_set_attach_exec_mode(MalAttachExecMode mode) {
 MalAttachExecMode mal_get_attach_exec_mode() {
 
 	return g.cfg.attach_mode.load();
-
-}
-
-bool apply_resize_sequence(const std::vector<int>& seq, const char* source) {
-
-	g.cfg.sequence.clear();
-	g.cfg.sequence.reserve(seq.size());
-
-	for (size_t i = 0; i < seq.size(); i++) {
-
-		const int target = seq[i];
-
-		if (target <= 0) {
-
-			MAL_LOG_L(MAL_LOG_ERROR, "CONFIG", "%s: invalid resize target seq[%zu]=%d (must be > 0)", source ? source : "CONFIG", i, target);
-			return false;
-
-		}
-
-		g.cfg.sequence.push_back(target);
-
-	}
-
-	if (g.cfg.sequence.empty()) {
-
-		MAL_LOG_L(MAL_LOG_ERROR, "CONFIG", "%s: resize sequence is empty", source ? source : "CONFIG");
-		return false;
-
-	}
-
-	g.cfg.seq_idx.store(0, std::memory_order_relaxed);
-	return true;
-
-}
-
-bool parse_resize_sequence(const char* text, std::vector<int>& seq_out, bool& found_invalid) {
-
-	seq_out.clear();
-	found_invalid = false;
-
-	if (!text || !*text) {
-
-		return false;
-
-	}
-
-	const char* p = text;
-
-	while (*p) {
-
-		char* end = nullptr;
-		long n = std::strtol(p, &end, 10);
-
-		if (end == p) {
-
-			found_invalid = true;
-			break;
-
-		}
-
-		if (n > 0) {
-
-			seq_out.push_back((int)n);
-
-		} else {
-
-			found_invalid = true;
-
-		}
-
-		p = end;
-
-		while (*p == ',' || *p == ' ') {
-
-			p++;
-
-		}
-
-	}
-
-	return !seq_out.empty();
-
-}
-
-void load_resize_sequence_or_abort() {
-
-	const char* source_name = "MAL_RESIZE_SEQ";
-	const char* source_value = std::getenv("MAL_RESIZE_SEQ");
-
-	if (!source_value || !*source_value) {
-
-		MAL_LOG_L(MAL_LOG_ERROR, "CONFIG", "Missing resize sequence: set MAL_RESIZE_SEQ");
-		std::abort();
-
-	}
-
-	std::vector<int> seq;
-	bool found_invalid = false;
-
-	if (!parse_resize_sequence(source_value, seq, found_invalid) || found_invalid) {
-
-		MAL_LOG_L(MAL_LOG_ERROR, "CONFIG", "%s is invalid; expected comma-separated positive integers", source_name);
-		std::abort();
-
-	}
-
-	if (!apply_resize_sequence(seq, source_name)) {
-
-		MAL_LOG_L(MAL_LOG_ERROR, "CONFIG", "Failed to apply resize sequence from %s", source_name);
-		std::abort();
-
-	}
-
-	MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "%s loaded (%zu resize points)", source_name, seq.size());
-
-}
-
-void validate_resize_sequence_against_universe_or_abort() {
-
-	for (size_t i = 0; i < g.cfg.sequence.size(); i++) {
-
-		const int target = g.cfg.sequence[i];
-
-		if (target > g.comm.u_size) {
-
-			MAL_LOG_L(MAL_LOG_ERROR, "CONFIG", "Resize target seq[%zu]=%d exceeds universe size=%d", i, target, g.comm.u_size);
-			std::abort();
-
-		}
-
-	}
 
 }
 
@@ -394,12 +280,6 @@ void load_env_config() {
 			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_RESIZE_POLICY=%s", v);
 
 		}
-
-	}
-
-	if (g.cfg.resize_policy == MAL_RESIZE_POLICY_FIXED_SEQUENCE) {
-
-		load_resize_sequence_or_abort();
 
 	}
 
@@ -802,9 +682,29 @@ void mal_init(MalResizePolicy policy) {
 	if (g.comm.u_rank == 0)
 		MAL_TRACE_META("universe_size", g.comm.u_size);
 
-	if (policy == MAL_RESIZE_POLICY_FIXED_SEQUENCE) {
+	// Every non-CUSTOM policy is really just a built-in decide_resize_func
+	// registered under the hood, compiled directly into the library (see
+	// builtin_policies/*.cpp) -- unless the caller already registered one
+	// explicitly (in which case that wins). Dispatches on g.cfg.resize_policy
+	// (not the 'policy' argument directly), since load_env_config() above may
+	// have overridden it from MAL_RESIZE_POLICY.
+	if (g.cfg.resize_policy != MAL_RESIZE_POLICY_CUSTOM && g.cfg.decide_resize_func == nullptr) {
 
-		validate_resize_sequence_against_universe_or_abort();
+		switch (g.cfg.resize_policy) {
+
+			case MAL_RESIZE_POLICY_AUTO:          mal_set_decide_resize_func(&builtin_auto::decide_auto); break;
+			case MAL_RESIZE_POLICY_THROUGHPUT:     mal_set_decide_resize_func(&builtin_auto::decide_throughput); break;
+			case MAL_RESIZE_POLICY_EFFICIENCY:     mal_set_decide_resize_func(&builtin_auto::decide_efficiency); break;
+			case MAL_RESIZE_POLICY_FIXED_SEQUENCE: mal_set_decide_resize_func(&builtin_fixed_sequence::decide); break;
+
+			case MAL_RESIZE_POLICY_COST:
+				mal_set_decide_resize_func(&builtin_cost::decide);
+				mal_set_decide_resize_state_funcs(&builtin_cost::cost_save_state, &builtin_cost::cost_load_state);
+				break;
+
+			default: break;
+
+		}
 
 	}
 

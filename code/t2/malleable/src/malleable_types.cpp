@@ -414,11 +414,12 @@ struct MalState {
 
 	struct Config {
 
-		std::vector<int> sequence;
-		std::atomic<size_t> seq_idx{0};
 		MalResizePolicy resize_policy{MAL_RESIZE_POLICY_AUTO};
 		DecideResizeFunc decide_resize_func{nullptr}; // NOT atomic: must be set before mal_init()
 		void*            decide_resize_plugin_handle{nullptr}; // NOT atomic: dlopen handle, closed in mal_finalize()
+		ResizeStateSaveFunc decide_resize_state_save{nullptr}; // NOT atomic: must be set before mal_init()
+		ResizeStateLoadFunc decide_resize_state_load{nullptr}; // NOT atomic: must be set before mal_init()
+		std::atomic<double> resize_min_horizon_epochs{2.0};
 		std::atomic<int> epoch_ms{kDefaultEpochIntervalMs};
 		std::atomic<int> epoch_change_mode{kDefaultEpochChangeMode};
 		std::atomic<bool> enabled{true};
@@ -559,7 +560,6 @@ struct MalState {
 		mutable std::mutex weights_mu;
 		double epoch_start_time{0.0};
 		long epoch_assigned{0};
-		double thr_single_proc{0.0};
 
 		int resize_cooldown{0};
 		int same_size_rebalance_cooldown{0};
@@ -567,37 +567,18 @@ struct MalState {
 		int prev_resize_to{0};
 		bool last_commit_grew{false};
 
-		enum class Phase : int8_t {
-
-			IDLE = 0, NEEDS_BASELINE, EXPLORE_MAX, SEARCHING, PROBING, COST_RAMP, COST_DESCENT, COST_SAMPLE, COST_SETTLED
-
-		};
-
-		Phase bs_phase{Phase::IDLE};
-		int bs_lo{1};
-		int bs_hi{-1};
-		int bs_baseline_count{0};
 		int my_slow_streak{0};
-		int gate_fire_streak{0};
-		int gate_giveup_at_n{-1};
 
-		double cost_best_g{0.0};
-		int cost_best_n{0};
-		double cost_prev_g{0.0};
-		int cost_prev_n{-1};
-		int cost_settle_recheck{0};
-		int cost_stop_streak{0};
+		// Set from the last decide_resize_func() call's ResizeDecision.settled,
+		// read back into EpochMetrics.any_settled next epoch (see
+		// gather_epoch_metrics()). Policy-agnostic: any plugin can report
+		// its own convergence this way.
+		bool last_decision_settled{false};
 
-		int sample_target{0};
-		int sample_min{0};
-		int sample_step{0};
-		int sample_coarse_step{0};
-		bool sample_fine{false};
-		int sample_dwell_left{0};
-		int sample_meas_left{0};
-		double sample_thr_accum{0.0};
-		double sample_best_thr{0.0};
-		int sample_best_n{0};
+		// Set from the last decide_resize_func() call's
+		// ResizeDecision.skip_cooldown, consumed once by
+		// Resizer::commit_phase() right after the resize it applies to.
+		bool last_decision_skip_cooldown{false};
 
 	} lb;
 

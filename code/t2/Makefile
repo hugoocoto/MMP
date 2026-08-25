@@ -63,7 +63,7 @@ BUILD_DIR = build
 LIB_MAL = $(BUILD_DIR)/libmalleable.a
 LIB_SRCS = malleable/src/malleable.cpp
 LIB_OBJS = $(LIB_SRCS:%.cpp=$(BUILD_DIR)/%.o)
-LIB_DEPS = $(wildcard malleable/src/malleable_*.cpp malleable/include/*.hpp)
+LIB_DEPS = $(wildcard malleable/src/malleable_*.cpp malleable/include/*.hpp malleable/builtin_policies/*.cpp)
 
 TARGET_MC = $(BUILD_DIR)/montecarlo
 SRCS_MC = examples/montecarlo.cpp
@@ -100,6 +100,7 @@ OBJS_CP = $(SRCS_CP:%.cpp=$(BUILD_DIR)/%.o)
 TARGET_MCP  = $(BUILD_DIR)/montecarlo_plugin_policy.so
 SRCS_MCP    = examples/montecarlo_plugin_policy.cpp
 OBJS_MCP    = $(SRCS_MCP:%.cpp=$(BUILD_DIR)/%.o)
+
 TARGET_MCPL = $(BUILD_DIR)/montecarlo_plugin
 SRCS_MCPL   = examples/montecarlo_plugin.cpp
 OBJS_MCPL   = $(SRCS_MCPL:%.cpp=$(BUILD_DIR)/%.o)
