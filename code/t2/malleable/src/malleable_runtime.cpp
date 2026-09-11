@@ -610,11 +610,23 @@ inline bool resize_pending_cleared_or_stop() {
 
 void mal_init(MalResizePolicy policy) {
 
+	if (policy == MAL_RESIZE_POLICY_CUSTOM && g.cfg.decide_resize_func == nullptr) {
+
+		policy = MAL_RESIZE_POLICY_AUTO;
+
+	}
+
 	g.cfg.resize_policy = policy;
 
 	signal(SIGPIPE, SIG_IGN);
 
 	load_env_config();
+
+	if (g.cfg.resize_policy == MAL_RESIZE_POLICY_CUSTOM) {
+
+		MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "decide function pre-registered, resize_policy=CUSTOM");
+
+	}
 
 	setenv("OMPI_MCA_coll_han_priority", "0", 0);
 	setenv("OMPI_MCA_coll_adapt_priority", "0", 0);
@@ -699,13 +711,6 @@ void mal_init(MalResizePolicy policy) {
 			default: break;
 
 		}
-
-	}
-
-	if (policy == MAL_RESIZE_POLICY_CUSTOM && g.cfg.decide_resize_func == nullptr) {
-
-		MAL_LOG_L(MAL_LOG_ERROR, "INIT", "mal_set_decide_resize_func() must be called before mal_init(MAL_RESIZE_POLICY_CUSTOM)");
-		MPI_Abort(g.comm.universe, 1);
 
 	}
 

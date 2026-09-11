@@ -252,7 +252,7 @@ struct MalCollapseSpec {
 
 };
 
-void mal_init(MalResizePolicy policy = MAL_RESIZE_POLICY_AUTO);
+void mal_init(MalResizePolicy policy = MAL_RESIZE_POLICY_CUSTOM);
 void mal_finalize();
 
 void mal_set_decide_resize_func(DecideResizeFunc func);
