@@ -24,14 +24,8 @@ static void log_mpi_error(const char* where, int rc) {
 
 static bool parse_env_bool(const char* text, bool& out) {
 
-	if (!text || !*text) {
-
-		return false;
-
-	}
-
 	char* end = nullptr;
-	long n = std::strtol(text, &end, 10);
+	const long n = std::strtol(text, &end, 10);
 
 	if (end != text && *end == '\0') {
 
@@ -40,14 +34,14 @@ static bool parse_env_bool(const char* text, bool& out) {
 
 	}
 
-	if (std::strcmp(text, "true") == 0 || std::strcmp(text, "TRUE") == 0 || std::strcmp(text, "on") == 0 || std::strcmp(text, "ON") == 0 || std::strcmp(text, "yes") == 0 || std::strcmp(text, "YES") == 0) {
+	if (strcasecmp(text, "true") == 0 || strcasecmp(text, "on") == 0 || strcasecmp(text, "yes") == 0) {
 
 		out = true;
 		return true;
 
 	}
 
-	if (std::strcmp(text, "false") == 0 || std::strcmp(text, "FALSE") == 0 || std::strcmp(text, "off") == 0 || std::strcmp(text, "OFF") == 0 || std::strcmp(text, "no") == 0 || std::strcmp(text, "NO") == 0) {
+	if (strcasecmp(text, "false") == 0 || strcasecmp(text, "off") == 0 || strcasecmp(text, "no") == 0) {
 
 		out = false;
 		return true;
@@ -58,20 +52,87 @@ static bool parse_env_bool(const char* text, bool& out) {
 
 }
 
-static bool parse_env_log_level(const char* text, MalLogLevel& out) {
+bool mal_env_bool(const char* name, bool fallback) {
 
-	if (!text || !*text) {
+	const char* v = std::getenv(name);
+	bool val = fallback;
 
-		return false;
+	if (!v) {
+
+		return fallback;
+
+	}
+
+	if (!parse_env_bool(v, val)) {
+
+		MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring %s='%s' (valid bool), using %d", name, v, (int)fallback);
+		return fallback;
+
+	}
+
+	MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "%s=%d", name, (int)val);
+	return val;
+
+}
+
+long mal_env_long(const char* name, long fallback, long min, long max) {
+
+	const char* v = std::getenv(name);
+
+	if (!v) {
+
+		return fallback;
 
 	}
 
 	char* end = nullptr;
-	long n = std::strtol(text, &end, 10);
+	const long val = std::strtol(v, &end, 10);
+
+	if (end == v || *end != '\0' || val < min || val > max) {
+
+		MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring %s='%s' (must be an integer in [%ld, %ld]), using %ld", name, v, min, max, fallback);
+		return fallback;
+
+	}
+
+	MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "%s=%ld", name, val);
+	return val;
+
+}
+
+double mal_env_double(const char* name, double fallback, double min, double max) {
+
+	const char* v = std::getenv(name);
+
+	if (!v) {
+
+		return fallback;
+
+	}
+
+	char* end = nullptr;
+	const double val = std::strtod(v, &end);
+
+	if (end == v || *end != '\0' || !(val >= min && val <= max)) {
+
+		MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring %s='%s' (must be a number in [%g, %g]), using %g", name, v, min, max, fallback);
+		return fallback;
+
+	}
+
+	MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "%s=%g", name, val);
+	return val;
+
+}
+
+static bool parse_env_log_level(const char* text, MalLogLevel& out) {
+
+	char* end = nullptr;
+	const long n = std::strtol(text, &end, 10);
 
 	if (end != text && *end == '\0') {
 
-		if (n < MAL_LOG_DEBUG || n > MAL_LOG_ERROR) {
+		if (n < MAL_LOG_DEBUG || n > MAL_LOG_NONE) {
 
 			return false;
 
@@ -82,37 +143,20 @@ static bool parse_env_log_level(const char* text, MalLogLevel& out) {
 
 	}
 
-	if (std::strcmp(text, "DEBUG") == 0 || std::strcmp(text, "debug") == 0) {
+	for (int level = MAL_LOG_DEBUG; level <= MAL_LOG_NONE; level++) {
 
-		out = MAL_LOG_DEBUG;
-		return true;
+		if (strcasecmp(text, mal_log_level_name((MalLogLevel)level)) == 0) {
 
-	}
+			out = (MalLogLevel)level;
+			return true;
 
-	if (std::strcmp(text, "INFO") == 0 || std::strcmp(text, "info") == 0) {
-
-		out = MAL_LOG_INFO;
-		return true;
+		}
 
 	}
 
-	if (std::strcmp(text, "WARN") == 0 || std::strcmp(text, "warn") == 0 || std::strcmp(text, "WARNING") == 0 || std::strcmp(text, "warning") == 0) {
+	if (strcasecmp(text, "warning") == 0) {
 
 		out = MAL_LOG_WARN;
-		return true;
-
-	}
-
-	if (std::strcmp(text, "ERROR") == 0 || std::strcmp(text, "error") == 0) {
-
-		out = MAL_LOG_ERROR;
-		return true;
-
-	}
-
-	if (std::strcmp(text, "NONE") == 0 || std::strcmp(text, "none") == 0) {
-
-		out = MAL_LOG_ERROR;
 		return true;
 
 	}
@@ -157,6 +201,12 @@ bool mal_get_resize_enabled() {
 
 }
 
+bool mal_get_load_balancing_enabled() {
+
+	return g.cfg.load_balancing_enabled.load(std::memory_order_relaxed);
+
+}
+
 void mal_set_resize_min_horizon_epochs(int epochs) {
 
 	g.cfg.resize_min_horizon_epochs.store((double)epochs, std::memory_order_relaxed);
@@ -192,401 +242,84 @@ void load_env_config() {
 
 		if (parse_env_log_level(v, level)) {
 
-			g.cfg.log_level.store(level, std::memory_order_relaxed);
+			g.cfg.log_level.store(level);
 			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_LOG_LEVEL=%s", mal_log_level_name(level));
 
 		} else {
 
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_LOG_LEVEL='%s' (valid: DEBUG/INFO/WARN/ERROR or 0..3)", v);
+			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_LOG_LEVEL='%s' (valid: DEBUG/INFO/WARN/ERROR/NONE or 0..4)", v);
 
 		}
 
 	}
 
-	if (const char* v = std::getenv("MAL_TRACE_ENABLED")) {
-
-		bool val = false;
-
-		if (parse_env_bool(v, val)) {
-
-			g.cfg.trace_enabled = val;
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_TRACE_ENABLED=%d", (int)val);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_TRACE_ENABLED='%s' (valid bool)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_LOG_ALL_RANKS")) {
-
-		bool all_ranks = false;
-
-		if (parse_env_bool(v, all_ranks)) {
-
-			g.cfg.log_all_ranks.store(all_ranks, std::memory_order_relaxed);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_LOG_ALL_RANKS=%d", (int)all_ranks);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_LOG_ALL_RANKS='%s' (valid bool)", v);
-
-		}
-
-	}
+	g.cfg.trace_enabled = mal_env_bool("MAL_TRACE_ENABLED", g.cfg.trace_enabled);
+	g.cfg.log_all_ranks.store(mal_env_bool("MAL_LOG_ALL_RANKS", g.cfg.log_all_ranks.load()));
 
 	if (const char* v = std::getenv("MAL_RESIZE_POLICY")) {
 
-		MalResizePolicy policy = g.cfg.resize_policy;
-		bool ok = true;
+		static constexpr struct { const char* name; MalResizePolicy policy; } kPolicies[] = {
+			{ "auto", MAL_RESIZE_POLICY_AUTO },
+			{ "throughput", MAL_RESIZE_POLICY_THROUGHPUT },
+			{ "efficiency", MAL_RESIZE_POLICY_EFFICIENCY },
+			{ "energy", MAL_RESIZE_POLICY_EFFICIENCY },
+			{ "fixed", MAL_RESIZE_POLICY_FIXED_SEQUENCE },
+			{ "fixed_sequence", MAL_RESIZE_POLICY_FIXED_SEQUENCE },
+			{ "cost", MAL_RESIZE_POLICY_COST },
+		};
 
-		if (std::strcmp(v, "auto") == 0 || std::strcmp(v, "AUTO") == 0) {
+		bool ok = false;
 
-			policy = MAL_RESIZE_POLICY_AUTO;
+		for (const auto& p : kPolicies) {
 
-		} else if (std::strcmp(v, "throughput") == 0 || std::strcmp(v, "THROUGHPUT") == 0) {
+			if (strcasecmp(v, p.name) == 0) {
 
-			policy = MAL_RESIZE_POLICY_THROUGHPUT;
+				g.cfg.resize_policy = p.policy;
+				ok = true;
+				break;
 
-		} else if (std::strcmp(v, "efficiency") == 0 || std::strcmp(v, "EFFICIENCY") == 0 || std::strcmp(v, "energy") == 0 || std::strcmp(v, "ENERGY") == 0) {
-
-			policy = MAL_RESIZE_POLICY_EFFICIENCY;
-
-		} else if (std::strcmp(v, "fixed") == 0 || std::strcmp(v, "FIXED") == 0 || std::strcmp(v, "fixed_sequence") == 0 || std::strcmp(v, "FIXED_SEQUENCE") == 0) {
-
-			policy = MAL_RESIZE_POLICY_FIXED_SEQUENCE;
-
-		} else if (std::strcmp(v, "cost") == 0 || std::strcmp(v, "COST") == 0) {
-
-			policy = MAL_RESIZE_POLICY_COST;
-
-		} else if (std::strcmp(v, "balance") == 0 || std::strcmp(v, "BALANCE") == 0 || std::strcmp(v, "lb") == 0 || std::strcmp(v, "LB") == 0) {
-
-			ok = false;
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "MAL_RESIZE_POLICY=balance/lb was REMOVED — use MAL_RESIZE_ENABLED=0 MAL_LOAD_BALANCING_ENABLED=1 (any policy) for fixed-N rebalancing. Ignoring.");
-
-		} else {
-
-			ok = false;
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_RESIZE_POLICY='%s' (valid: auto/throughput/energy/fixed/cost)", v);
+			}
 
 		}
 
 		if (ok) {
 
-			g.cfg.resize_policy = policy;
 			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_RESIZE_POLICY=%s", v);
 
-		}
+		} else if (strcasecmp(v, "balance") == 0 || strcasecmp(v, "lb") == 0) {
 
-	}
-
-	if (const char* v = std::getenv("MAL_EPOCH_INTERVAL_MS")) {
-
-		long ms = std::strtol(v, nullptr, 10);
-
-		if (ms > 0) {
-
-			g.cfg.epoch_ms.store((int)ms);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_EPOCH_INTERVAL_MS=%ld", ms);
+			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "MAL_RESIZE_POLICY=balance/lb was REMOVED — use MAL_RESIZE_ENABLED=0 MAL_LOAD_BALANCING_ENABLED=1 (any policy) for fixed-N rebalancing. Ignoring.");
 
 		} else {
 
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_EPOCH_INTERVAL_MS='%s' (must be > 0)", v);
+			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_RESIZE_POLICY='%s' (valid: auto/throughput/energy/fixed/cost)", v);
 
 		}
 
 	}
 
-	if (const char* v = std::getenv("MAL_STENCIL_RESID_REDUCES")) {
+	g.cfg.epoch_ms.store((int)mal_env_long("MAL_EPOCH_INTERVAL_MS", g.cfg.epoch_ms.load(), 1, INT_MAX));
+	g.cfg.stencil_resid_reduces.store((int)mal_env_long("MAL_STENCIL_RESID_REDUCES", g.cfg.stencil_resid_reduces.load(), 1, INT_MAX));
+	g.cfg.stencil_epoch_steps.store((int)mal_env_long("MAL_STENCIL_EPOCH_STEPS", g.cfg.stencil_epoch_steps.load(), 1, INT_MAX));
+	g.cfg.epoch_change_mode.store((int)mal_env_long("MAL_EPOCH_CHANGE_MODE", g.cfg.epoch_change_mode.load(), MAL_EPOCH_CHANGE_RECALCULATE, MAL_EPOCH_CHANGE_USE_LAST_DECISION));
 
-		long r = std::strtol(v, nullptr, 10);
+	g.cfg.enabled.store(mal_env_bool("MAL_RESIZE_ENABLED", g.cfg.enabled.load()));
+	g.cfg.malleability_enabled.store(mal_env_bool("MAL_MALLEABILITY_ENABLED", g.cfg.malleability_enabled.load()));
+	g.cfg.load_balancing_enabled.store(mal_env_bool("MAL_LOAD_BALANCING_ENABLED", g.cfg.load_balancing_enabled.load()));
 
-		if (r > 0) {
+	if (!g.cfg.malleability_enabled.load()) {
 
-			g.cfg.stencil_resid_reduces.store((int)r);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_STENCIL_RESID_REDUCES=%ld", r);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_STENCIL_RESID_REDUCES='%s' (must be > 0)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_COST_SAMPLE_STEP")) {
-
-		long s = std::strtol(v, nullptr, 10);
-
-		if (s > 0) {
-
-			g.cfg.cost_sample_step.store((int)s);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_COST_SAMPLE_STEP=%ld", s);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_COST_SAMPLE_STEP='%s' (must be > 0)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_COST_SAMPLE_REFINE")) {
-
-		const bool on = (std::strcmp(v, "1") == 0 || std::strcmp(v, "true") == 0 || std::strcmp(v, "TRUE") == 0 || std::strcmp(v, "yes") == 0);
-		g.cfg.cost_sample_refine.store(on);
-		MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_COST_SAMPLE_REFINE=%d", (int)on);
-
-	}
-
-	if (const char* v = std::getenv("MAL_COST_SAMPLE_MEAS")) {
-
-		long m = std::strtol(v, nullptr, 10);
-
-		if (m > 0) {
-
-			g.cfg.cost_sample_meas.store((int)m);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_COST_SAMPLE_MEAS=%ld", m);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_COST_SAMPLE_MEAS='%s' (must be > 0)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_STENCIL_EPOCH_STEPS")) {
-
-		long k = std::strtol(v, nullptr, 10);
-
-		if (k > 0) {
-
-			g.cfg.stencil_epoch_steps.store((int)k);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_STENCIL_EPOCH_STEPS=%ld", k);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_STENCIL_EPOCH_STEPS='%s' (must be > 0)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_EPOCH_CHANGE_MODE")) {
-
-		char* end = nullptr;
-		long mode = std::strtol(v, &end, 10);
-
-		if (end == v || (mode != MAL_EPOCH_CHANGE_RECALCULATE && mode != MAL_EPOCH_CHANGE_USE_LAST_DECISION)) {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_EPOCH_CHANGE_MODE='%s' (valid: 0=recalculate, 1=use last decision)", v);
-
-		} else {
-
-			g.cfg.epoch_change_mode.store((int)mode);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_EPOCH_CHANGE_MODE=%ld", mode);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_RESIZE_ENABLED")) {
-
-		bool val = false;
-
-		if (parse_env_bool(v, val)) {
-
-			g.cfg.enabled.store(val, std::memory_order_relaxed);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_RESIZE_ENABLED=%d", (int)val);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_RESIZE_ENABLED='%s' (valid bool)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_MALLEABILITY_ENABLED")) {
-
-		bool val = false;
-
-		if (parse_env_bool(v, val)) {
-
-			g.cfg.malleability_enabled.store(val, std::memory_order_relaxed);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_MALLEABILITY_ENABLED=%d", (int)val);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_MALLEABILITY_ENABLED='%s' (valid bool)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_LOAD_BALANCING_ENABLED")) {
-
-		bool val = false;
-
-		if (parse_env_bool(v, val)) {
-
-			g.cfg.load_balancing_enabled.store(val, std::memory_order_relaxed);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_LOAD_BALANCING_ENABLED=%d", (int)val);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_LOAD_BALANCING_ENABLED='%s' (valid bool)", v);
-
-		}
-
-	}
-
-	if (!g.cfg.malleability_enabled.load(std::memory_order_relaxed)) {
-
-		g.cfg.enabled.store(false, std::memory_order_relaxed);
+		g.cfg.enabled.store(false);
 		MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "Malleability disabled: forcing MAL_RESIZE_ENABLED=0");
 
 	}
 
-	if (const char* v = std::getenv("MAL_FAST_RESPONSE")) {
-
-		bool val = false;
-
-		if (parse_env_bool(v, val)) {
-
-			g.cfg.fast_response.store(val, std::memory_order_relaxed);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_FAST_RESPONSE=%d", (int)val);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_FAST_RESPONSE='%s' (valid bool)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_COST_KEEP_FRACTION")) {
-
-		char* end = nullptr;
-		double val = std::strtod(v, &end);
-
-		if (end == v || val <= 0.0 || val > 1.0) {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_COST_KEEP_FRACTION='%s' (must be in (0,1])", v);
-
-		} else {
-
-			g.cfg.cost_keep_fraction.store(val, std::memory_order_relaxed);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_COST_KEEP_FRACTION=%.3f", val);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_BASELINE_FROM_PERRANK")) {
-
-		bool val = false;
-
-		if (parse_env_bool(v, val)) {
-
-			g.cfg.baseline_from_perrank.store(val, std::memory_order_relaxed);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_BASELINE_FROM_PERRANK=%d", (int)val);
-
-		} else {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_BASELINE_FROM_PERRANK='%s' (valid bool)", v);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_AFFINITY")) {
-
-		char* end = nullptr;
-		long val = std::strtol(v, &end, 10);
-
-		if (end == v) {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_AFFINITY='%s' (invalid), using default (%d)", v, (int)kDefaultAffinityEnabled);
-
-		} else {
-
-			g.cfg.affinity_enabled = (val != 0);
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_AFFINITY=%ld to affinity %s", val, g.cfg.affinity_enabled ? "enabled" : "disabled");
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_MAIN_CORE")) {
-
-		char* end = nullptr;
-		long val = std::strtol(v, &end, 10);
-
-		if (end == v || val < 0) {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_MAIN_CORE='%s' (must be >= 0), using default (%d)", v, kDefaultMainCore);
-
-		} else {
-
-			g.cfg.main_core = (int)val;
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_MAIN_CORE=%ld", val);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_WORKER_CORE")) {
-
-		char* end = nullptr;
-		long val = std::strtol(v, &end, 10);
-
-		if (end == v || val < 0) {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_WORKER_CORE='%s' (must be >= 0), using default (%d)", v, kDefaultWorkerCore);
-
-		} else {
-
-			g.cfg.worker_core = (int)val;
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_WORKER_CORE=%ld", val);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_INITIAL_SIZE")) {
-
-		char* end = nullptr;
-		long val = std::strtol(v, &end, 10);
-
-		if (end == v || val <= 0) {
-
-			MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring MAL_INITIAL_SIZE='%s' (must be > 0), using default (%d)", v, kDefaultInitialSize);
-
-		} else {
-
-			g.cfg.initial_size = (int)val;
-			MAL_LOG_L(MAL_LOG_DEBUG, "CONFIG", "MAL_INITIAL_SIZE=%ld", val);
-
-		}
-
-	}
-
-	if (const char* v = std::getenv("MAL_TIMING")) {
-
-		bool val = false;
-
-		if (parse_env_bool(v, val)) {
-
-			g.timing.enabled = val;
-
-		}
-
-	}
+	g.cfg.fast_response.store(mal_env_bool("MAL_FAST_RESPONSE", g.cfg.fast_response.load()));
+	g.cfg.affinity_enabled = mal_env_bool("MAL_AFFINITY", g.cfg.affinity_enabled);
+	g.cfg.main_core = (int)mal_env_long("MAL_MAIN_CORE", g.cfg.main_core, 0, INT_MAX);
+	g.cfg.worker_core = (int)mal_env_long("MAL_WORKER_CORE", g.cfg.worker_core, 0, INT_MAX);
+	g.cfg.initial_size = (int)mal_env_long("MAL_INITIAL_SIZE", g.cfg.initial_size, 1, INT_MAX);
+	g.timing.enabled = mal_env_bool("MAL_TIMING", g.timing.enabled);
 
 }
 
@@ -698,16 +431,11 @@ void mal_init(MalResizePolicy policy) {
 
 		switch (g.cfg.resize_policy) {
 
-			case MAL_RESIZE_POLICY_AUTO:          mal_set_decide_resize_func(&builtin_auto::decide_auto); break;
-			case MAL_RESIZE_POLICY_THROUGHPUT:     mal_set_decide_resize_func(&builtin_auto::decide_throughput); break;
-			case MAL_RESIZE_POLICY_EFFICIENCY:     mal_set_decide_resize_func(&builtin_auto::decide_efficiency); break;
-			case MAL_RESIZE_POLICY_FIXED_SEQUENCE: mal_set_decide_resize_func(&builtin_fixed_sequence::decide); break;
-
-			case MAL_RESIZE_POLICY_COST:
-				mal_set_decide_resize_func(&builtin_cost::decide);
-				mal_set_decide_resize_state_funcs(&builtin_cost::cost_save_state, &builtin_cost::cost_load_state);
-				break;
-
+			case MAL_RESIZE_POLICY_AUTO:           builtin_auto::install(0.6); break;
+			case MAL_RESIZE_POLICY_THROUGHPUT:     builtin_auto::install(0.0); break;
+			case MAL_RESIZE_POLICY_EFFICIENCY:     builtin_auto::install(0.8); break;
+			case MAL_RESIZE_POLICY_FIXED_SEQUENCE: builtin_fixed_sequence::install(); break;
+			case MAL_RESIZE_POLICY_COST:           builtin_cost::install(); break;
 			default: break;
 
 		}

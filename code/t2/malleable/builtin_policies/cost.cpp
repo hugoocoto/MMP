@@ -1,7 +1,6 @@
 #include "malleable.hpp"
 
 #include <algorithm>
-#include <cstdlib>
 #include <cstring>
 
 namespace builtin_cost {
@@ -42,108 +41,69 @@ struct CostState {
 	double sample_best_thr{0.0};
 	int sample_best_n{0};
 
+	int gate_fire_streak{0};
+	int gate_giveup_at_n{-1};
+
+};
+
+struct CostConfig {
+
+	double keep_fraction{0.97};
+	int sample_step{8};
+	bool sample_refine{false};
+	int sample_meas{3};
+
 };
 
 CostState g_state;
-
-int g_gate_fire_streak = 0;
-int g_gate_giveup_at_n = -1;
-
-bool load_balancing_enabled() {
-
-	static const bool v = [] {
-		const char* s = std::getenv("MAL_LOAD_BALANCING_ENABLED");
-		return s && std::atol(s) != 0;
-	}();
-
-	return v;
-
-}
-
-double keep_fraction() {
-
-	static const double v = [] {
-		const char* s = std::getenv("MAL_COST_KEEP_FRACTION");
-		double val = s ? std::atof(s) : 0.97;
-		return (val <= 0.0 || val > 1.0) ? 0.97 : val;
-	}();
-
-	return v;
-
-}
-
-int sample_step_env() {
-
-	static const int v = [] {
-		const char* s = std::getenv("MAL_COST_SAMPLE_STEP");
-		return std::max(1, s ? (int)std::atol(s) : 8);
-	}();
-
-	return v;
-
-}
-
-bool sample_refine_env() {
-
-	static const bool v = [] {
-		const char* s = std::getenv("MAL_COST_SAMPLE_REFINE");
-		return s && std::atol(s) != 0;
-	}();
-
-	return v;
-
-}
-
-int sample_meas_env() {
-
-	static const int v = [] {
-		const char* s = std::getenv("MAL_COST_SAMPLE_MEAS");
-		return std::max(1, s ? (int)std::atol(s) : 3);
-	}();
-
-	return v;
-
-}
+CostConfig g_config;
 
 GateAction imbalance_gate(const EpochMetrics& m, bool gate_live, bool in_rebalance_cooldown) {
 
 	const bool imbalanced = (m.active_n > 1) && (m.max_slow_streak >= kImbStreakNeeded);
 
-	if (!gate_live || !load_balancing_enabled() || !imbalanced) {
+	if (!gate_live || !mal_get_load_balancing_enabled() || !imbalanced) {
 
-		g_gate_fire_streak = 0;
-		g_gate_giveup_at_n = -1;
+		g_state.gate_fire_streak = 0;
+		g_state.gate_giveup_at_n = -1;
 		return GateAction::Proceed;
 
 	}
 
-	if (g_gate_giveup_at_n == m.active_n) return GateAction::Proceed;
+	if (g_state.gate_giveup_at_n == m.active_n) return GateAction::Proceed;
 	if (in_rebalance_cooldown) return GateAction::Defer;
 
-	if (g_gate_fire_streak >= kMaxGateFires) {
+	if (g_state.gate_fire_streak >= kMaxGateFires) {
 
-		g_gate_giveup_at_n = m.active_n;
-		MAL_LOG_L(MAL_LOG_DEBUG, "COST", "imbalance gate: irreducible at N=%d (%d fires, slow_streak=%d) -> allow sizing", m.active_n, g_gate_fire_streak, m.max_slow_streak);
+		g_state.gate_giveup_at_n = m.active_n;
+		MAL_LOG_L(MAL_LOG_DEBUG, "COST", "imbalance gate: irreducible at N=%d (%d fires, slow_streak=%d) -> allow sizing", m.active_n, g_state.gate_fire_streak, m.max_slow_streak);
 		return GateAction::Proceed;
 
 	}
 
-	g_gate_fire_streak++;
+	g_state.gate_fire_streak++;
 	return GateAction::Rebalance;
 
 }
 
-} 
+}
 
-ResizeStateBlob cost_save_state() {
+ResizeStateBlob save_state() {
 
 	return { &g_state, sizeof(g_state) };
 
 }
 
-void cost_load_state(const void* data, size_t len) {
+void load_state(const void* data, size_t len) {
 
-	if (len == sizeof(g_state)) std::memcpy(&g_state, data, len);
+	if (len != sizeof(g_state)) {
+
+		MAL_LOG_L(MAL_LOG_ERROR, "COST", "load_state: got %zu bytes, expected %zu; keeping local state", len, sizeof(g_state));
+		return;
+
+	}
+
+	std::memcpy(&g_state, data, len);
 
 }
 
@@ -186,7 +146,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 	}
 
-	const double keep = keep_fraction();
+	const double keep = g_config.keep_fraction;
 
 	if (g_state.phase != Phase::RAMP && g_state.phase != Phase::DESCENT && g_state.phase != Phase::SAMPLE && g_state.phase != Phase::SETTLED) {
 
@@ -262,7 +222,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 		if (m.iterative_kernel && U > 1) {
 
-			const int coarse_step = sample_step_env();
+			const int coarse_step = g_config.sample_step;
 			g_state.sample_best_thr = thr;
 			g_state.sample_best_n = U;
 			g_state.sample_coarse_step = coarse_step;
@@ -271,7 +231,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 			g_state.sample_min = std::max(1, U / 4);
 			g_state.sample_target = std::max(g_state.sample_min, U - coarse_step);
 			g_state.sample_dwell_left = kCostSampleDwell;
-			g_state.sample_meas_left = sample_meas_env();
+			g_state.sample_meas_left = g_config.sample_meas;
 			g_state.sample_thr_accum = 0.0;
 			g_state.phase = Phase::SAMPLE;
 			log_cost("sample-start");
@@ -393,7 +353,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 		if (g_state.sample_meas_left > 0) return out;
 
-		const double cand_thr = g_state.sample_thr_accum / (double)sample_meas_env();
+		const double cand_thr = g_state.sample_thr_accum / (double)g_config.sample_meas;
 
 		if (mal_rank() == 0) {
 
@@ -414,7 +374,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 			g_state.sample_target = next;
 			g_state.sample_dwell_left = kCostSampleDwell;
-			g_state.sample_meas_left = sample_meas_env();
+			g_state.sample_meas_left = g_config.sample_meas;
 			g_state.sample_thr_accum = 0.0;
 
 			out.should_resize = true;
@@ -423,7 +383,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 		}
 
-		if (!g_state.sample_fine && sample_refine_env()) {
+		if (!g_state.sample_fine && g_config.sample_refine) {
 
 			const int cstep = std::max(1, g_state.sample_coarse_step);
 			const int fstep = std::max(1, cstep / 4);
@@ -437,7 +397,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 				g_state.sample_min = fine_lo;
 				g_state.sample_target = fine_hi;
 				g_state.sample_dwell_left = kCostSampleDwell;
-				g_state.sample_meas_left = sample_meas_env();
+				g_state.sample_meas_left = g_config.sample_meas;
 				g_state.sample_thr_accum = 0.0;
 
 				if (mal_rank() == 0) {
@@ -497,4 +457,15 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 }
 
-} 
+void install() {
+
+	g_config.keep_fraction = mal_env_double("MAL_COST_KEEP_FRACTION", 0.97, 0.01, 1.0);
+	g_config.sample_step = (int)mal_env_long("MAL_COST_SAMPLE_STEP", 8, 1, INT_MAX);
+	g_config.sample_refine = mal_env_bool("MAL_COST_SAMPLE_REFINE", false);
+	g_config.sample_meas = (int)mal_env_long("MAL_COST_SAMPLE_MEAS", 3, 1, INT_MAX);
+	mal_set_decide_resize_func(&decide);
+	mal_set_decide_resize_state_funcs(&save_state, &load_state);
+
+}
+
+}

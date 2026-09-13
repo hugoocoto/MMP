@@ -204,7 +204,7 @@ $(TARGET_MCP): $(SRCS_MCP) malleable/include/malleable.hpp
 	$(CXX) $(CXXFLAGS) -fPIC -shared -o $@ $(SRCS_MCP)
 
 $(TARGET_MCPL): $(LIB_MAL) $(OBJS_MCPL)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJS_MCPL) $(LIB_MAL) $(LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS_MCPL) $(LIB_MAL) $(LIBS) -rdynamic
 
 $(TARGET_LD): $(LIB_MAL) $(OBJS_LD)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS_LD) $(LIB_MAL) $(LIBS)

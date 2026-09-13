@@ -11,15 +11,35 @@ constexpr int kFusedGatherFields = 1 + kLbGatherFields;
 constexpr int kMinResizeCooldownEpochs = 2;
 constexpr double kImbHi = 1.50;
 
+void mal_set_shared_mem(void* mem){
+        g.shared_mem.mem = mem;
+}
+
+void *mal_get_shared_mem(void){
+        return g.shared_mem.mem;
+}
+
 void mal_set_decide_resize_func(DecideResizeFunc func) {
 
 	g.cfg.decide_resize_func = func;
 
 }
 
-void mal_set_decide_resize_plugin(const char* path, const char* func_name) {
+static void* plugin_symbol_or_abort(void* handle, const char* name) {
 
-	dlerror(); 
+	dlerror();
+	void* sym = dlsym(handle, name);
+	const char* err = dlerror();
+	if (err || !sym) {
+		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "dlsym(\"%s\") failed: %s", name, err ? err : "symbol is null");
+		std::abort();
+	}
+
+	return sym;
+
+}
+
+void mal_set_decide_resize_plugin(const char* path, const char* func_name) {
 
 	void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
 	if (!handle) {
@@ -27,14 +47,7 @@ void mal_set_decide_resize_plugin(const char* path, const char* func_name) {
 		std::abort();
 	}
 
-	dlerror(); 
-	void* sym = dlsym(handle, func_name);
-	const char* err = dlerror();
-	if (err) {
-		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "dlsym(\"%s\") failed: %s", func_name, err);
-		dlclose(handle);
-		std::abort();
-	}
+	void* sym = plugin_symbol_or_abort(handle, func_name);
 
 	if (g.cfg.decide_resize_plugin_handle) {
 		dlclose(g.cfg.decide_resize_plugin_handle);
@@ -59,24 +72,11 @@ void mal_set_decide_resize_state_plugin(const char* save_func_name, const char* 
 
 	if (!g.cfg.decide_resize_plugin_handle) {
 		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "mal_set_decide_resize_state_plugin() called before mal_set_decide_resize_plugin()");
-		MPI_Abort(MPI_COMM_WORLD, 1);
+		std::abort();
 	}
 
-	dlerror();
-	void* save_sym = dlsym(g.cfg.decide_resize_plugin_handle, save_func_name);
-	const char* err = dlerror();
-	if (err) {
-		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "dlsym(\"%s\") failed: %s", save_func_name, err);
-		MPI_Abort(MPI_COMM_WORLD, 1);
-	}
-
-	dlerror();
-	void* load_sym = dlsym(g.cfg.decide_resize_plugin_handle, load_func_name);
-	err = dlerror();
-	if (err) {
-		MAL_LOG_L(MAL_LOG_ERROR, "PLUGIN", "dlsym(\"%s\") failed: %s", load_func_name, err);
-		MPI_Abort(MPI_COMM_WORLD, 1);
-	}
+	void* save_sym = plugin_symbol_or_abort(g.cfg.decide_resize_plugin_handle, save_func_name);
+	void* load_sym = plugin_symbol_or_abort(g.cfg.decide_resize_plugin_handle, load_func_name);
 
 	ResizeStateSaveFunc save;
 	ResizeStateLoadFunc load;
@@ -274,15 +274,13 @@ EpochMetrics gather_epoch_metrics() {
 
 	}
 
-	(void)r0_elapsed;
-
 	m.resize_commit_count = g.timing.resize_count;
 
 	if (g.lb.resize_cooldown > 0) g.lb.resize_cooldown--;
 	if (g.lb.same_size_rebalance_cooldown > 0) g.lb.same_size_rebalance_cooldown--;
 	m.resize_cooldown_remaining = g.lb.resize_cooldown;
 	m.rebalance_cooldown_remaining = g.lb.same_size_rebalance_cooldown;
-	m.epoch_elapsed = my_elapsed;
+	m.epoch_elapsed = r0_elapsed;
 	m.epoch_interval_ms = g.cfg.epoch_ms.load(std::memory_order_relaxed);
 	m.iterative_kernel = g.sync.iterative_kernel.load(std::memory_order_acquire);
 
@@ -2300,11 +2298,6 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 	g.lb.last_decision_settled = decision.settled;
 	g.lb.last_decision_skip_cooldown = decision.skip_cooldown;
 
-	if (decision.should_resize) {
-		decision.target_active_size = std::clamp(
-			decision.target_active_size, 1, g.comm.u_size);
-	}
-
 	if (!decision.should_resize) {
 
 		decision.target_active_size = -1;
@@ -2312,14 +2305,16 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 	}
 
-	if (decision.target_active_size <= 0 || decision.target_active_size > g.comm.u_size) {
+	if (decision.target_active_size <= 0) {
 
 		MAL_LOG_L(MAL_LOG_WARN, "EPOCH", "Decision returned invalid target=%d (valid range 1..%d)", decision.target_active_size, g.comm.u_size);
 		decision.should_resize = false;
 		decision.target_active_size = -1;
+		return decision;
 
 	}
 
+	decision.target_active_size = std::min(decision.target_active_size, g.comm.u_size);
 	return decision;
 
 }

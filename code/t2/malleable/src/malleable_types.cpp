@@ -22,6 +22,7 @@
 #include <numeric>
 #include <optional>
 #include <pthread.h>
+#include <strings.h>
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>
@@ -428,18 +429,10 @@ struct MalState {
 		std::atomic<bool> malleability_enabled{kDefaultMalleabilityEnabled};
 		std::atomic<bool> load_balancing_enabled{kDefaultLoadBalancingEnabled};
 		std::atomic<bool> fast_response{false};
-		std::atomic<double> cost_keep_fraction{0.97};
-		std::atomic<bool> baseline_from_perrank{false};
 		std::atomic<MalAttachExecMode> attach_mode{MAL_ATTACH_SYNC};
 		std::atomic<int> stencil_epoch_steps{64};
 
 		std::atomic<int> stencil_resid_reduces{1};
-
-		std::atomic<int> cost_sample_step{8};
-
-		std::atomic<bool> cost_sample_refine{false};
-
-		std::atomic<int> cost_sample_meas{3};
 
 		bool trace_enabled {false};
 		bool affinity_enabled{kDefaultAffinityEnabled};
@@ -625,6 +618,10 @@ struct MalState {
 	MalState() noexcept = default;
 	MalState(const MalState&) = delete;
 	MalState& operator=(const MalState&) = delete;
+
+        struct {
+                void* mem;
+        } shared_mem;
 
 };
 
@@ -1119,7 +1116,7 @@ double mal_t_origin() {
 
 bool mal_should_log(MalLogLevel level) {
 
-	if ((int)level < (int)g.cfg.log_level.load(std::memory_order_relaxed)) {
+	if (level >= MAL_LOG_NONE || (int)level < (int)g.cfg.log_level.load(std::memory_order_relaxed)) {
 
 		return false;
 

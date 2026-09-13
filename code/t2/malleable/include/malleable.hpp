@@ -256,14 +256,21 @@ void mal_init(MalResizePolicy policy = MAL_RESIZE_POLICY_CUSTOM);
 void mal_finalize();
 
 void mal_set_decide_resize_func(DecideResizeFunc func);
-
 void mal_set_decide_resize_plugin(const char* path, const char* func_name);
+
+void mal_set_shared_mem(void* mem);
+void *mal_get_shared_mem(void);
 
 void mal_set_epoch_interval_ms(int ms);
 void mal_set_resize_enabled(bool enabled);
 [[nodiscard]] bool mal_get_resize_enabled();
+[[nodiscard]] bool mal_get_load_balancing_enabled();
 
 void mal_set_resize_min_horizon_epochs(int epochs);
+
+[[nodiscard]] bool mal_env_bool(const char* name, bool fallback);
+[[nodiscard]] long mal_env_long(const char* name, long fallback, long min, long max);
+[[nodiscard]] double mal_env_double(const char* name, double fallback, double min, double max);
 
 void mal_set_attach_exec_mode(MalAttachExecMode mode);
 [[nodiscard]] MalAttachExecMode mal_get_attach_exec_mode();

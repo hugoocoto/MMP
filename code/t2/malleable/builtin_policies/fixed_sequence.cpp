@@ -70,18 +70,7 @@ std::vector<int> parse_sequence(const char* text) {
 
 }
 
-const std::vector<int>& sequence() {
-
-	static const bool disabled_horizon_throttle = [] {
-		mal_set_resize_min_horizon_epochs(0);
-		return true;
-	}();
-	(void)disabled_horizon_throttle;
-
-	static const std::vector<int> seq = parse_sequence(std::getenv("MAL_RESIZE_SEQ"));
-	return seq;
-
-}
+std::vector<int> g_seq;
 
 }
 
@@ -89,24 +78,29 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 	ResizeDecision out;
 
-	const std::vector<int>& seq = sequence();
-	const int i = m.resize_commit_count;
+	size_t i = (size_t)m.resize_commit_count;
 
-	if (i < 0 || (size_t)i >= seq.size()) {
+	if (i < g_seq.size() && g_seq[i] == m.active_n) i++;
+
+	if (i >= g_seq.size()) {
 
 		out.done = true;
 		return out;
 
 	}
 
-	const int target = seq[(size_t)i];
-
-	if (target == m.active_n) return out; 
-
 	out.should_resize = true;
-	out.target_active_size = target;
+	out.target_active_size = g_seq[i];
 
 	return out;
+
+}
+
+void install() {
+
+	g_seq = parse_sequence(std::getenv("MAL_RESIZE_SEQ"));
+	mal_set_resize_min_horizon_epochs(0);
+	mal_set_decide_resize_func(&decide);
 
 }
 

@@ -1,7 +1,7 @@
 #include "malleable.hpp"
 
 #include <algorithm>
-#include <cstdlib>
+#include <cstring>
 
 namespace builtin_auto {
 
@@ -30,21 +30,25 @@ struct AutoState {
 };
 
 AutoState g_state;
-
-bool load_balancing_enabled() {
-
-	static const bool v = [] {
-		const char* s = std::getenv("MAL_LOAD_BALANCING_ENABLED");
-		return s && std::atol(s) != 0;
-	}();
-
-	return v;
-
-}
+double g_threshold = 0.6;
+bool g_baseline_from_perrank = false;
 
 void update_baseline(const EpochMetrics& m) {
 
-	if (m.active_n != 1 || m.global_thr <= kEpsThroughput) return;
+	if (m.global_thr <= kEpsThroughput) return;
+
+	if (m.active_n != 1) {
+
+		if (g_baseline_from_perrank && m.active_n > 1 && g_state.thr_single_proc <= kEpsThroughput) {
+
+			g_state.thr_single_proc = m.global_thr / (double)m.active_n;
+			g_state.baseline_count = kMinBaselineEpochs;
+
+		}
+
+		return;
+
+	}
 
 	const double min_valid_s = std::max(0.02, m.epoch_interval_ms * 0.0005);
 
@@ -65,7 +69,7 @@ GateAction imbalance_gate(const EpochMetrics& m, bool gate_live, bool in_rebalan
 
 	const bool imbalanced = (m.active_n > 1) && (m.max_slow_streak >= kImbStreakNeeded);
 
-	if (!gate_live || !load_balancing_enabled() || !imbalanced) {
+	if (!gate_live || !mal_get_load_balancing_enabled() || !imbalanced) {
 
 		g_state.gate_fire_streak = 0;
 		g_state.gate_giveup_at_n = -1;
@@ -371,8 +375,34 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 }
 
-ResizeDecision decide_auto(const EpochMetrics& m) { return decide_core(m, 0.6); }
-ResizeDecision decide_throughput(const EpochMetrics& m) { return decide_core(m, 0.0); }
-ResizeDecision decide_efficiency(const EpochMetrics& m) { return decide_core(m, 0.8); }
+ResizeDecision decide(const EpochMetrics& m) { return decide_core(m, g_threshold); }
+
+ResizeStateBlob save_state() {
+
+	return { &g_state, sizeof(g_state) };
+
+}
+
+void load_state(const void* data, size_t len) {
+
+	if (len != sizeof(g_state)) {
+
+		MAL_LOG_L(MAL_LOG_ERROR, "AUTO", "load_state: got %zu bytes, expected %zu; keeping local state", len, sizeof(g_state));
+		return;
+
+	}
+
+	std::memcpy(&g_state, data, len);
+
+}
+
+void install(double threshold) {
+
+	g_threshold = threshold;
+	g_baseline_from_perrank = mal_env_bool("MAL_BASELINE_FROM_PERRANK", false);
+	mal_set_decide_resize_func(&decide);
+	mal_set_decide_resize_state_funcs(&save_state, &load_state);
+
+}
 
 } 
