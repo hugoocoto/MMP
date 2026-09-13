@@ -105,6 +105,10 @@ TARGET_MCPL = $(BUILD_DIR)/montecarlo_plugin
 SRCS_MCPL   = examples/montecarlo_plugin.cpp
 OBJS_MCPL   = $(SRCS_MCPL:%.cpp=$(BUILD_DIR)/%.o)
 
+TARGET_VOTE = $(BUILD_DIR)/vote_consensus
+SRCS_VOTE = examples/vote_consensus.cpp
+OBJS_VOTE = $(SRCS_VOTE:%.cpp=$(BUILD_DIR)/%.o)
+
 TARGET_SPMV = $(BUILD_DIR)/spmv_imbal
 SRCS_SPMV = examples/spmv_imbal.cpp
 OBJS_SPMV = $(SRCS_SPMV:%.cpp=$(BUILD_DIR)/%.o)
@@ -169,7 +173,7 @@ DEPS =$(LIB_OBJS:.o=.d) $(OBJS_MC:.o=.d) $(OBJS_VEC:.o=.d) $(OBJS_MAT:.o=.d) $(O
 
 .PHONY: all run_montecarlo run_vector run_vector_collapse run_normalize run_normalize_normal run_matmat run_matvec run_sparse run_resize_demo run_resize_demo_dynamic run_life_dynamic run_spmv_imbal run_spmv_csr run_spmv_imbal_normal run_montecarlo_normal run_vector_normal run_vector_normal_collapse run_matmat_normal run_matvec_normal run_sparse_normal run_custom_policy run_montecarlo_plugin test clean re
 
-all: $(LIB_MAL) $(TARGET_MC) $(TARGET_VEC) $(TARGET_MAT) $(TARGET_MV) $(TARGET_SP) $(TARGET_RD) $(TARGET_LD) $(TARGET_SPMV) $(TARGET_SPMV_NORMAL) $(TARGET_MC_NORMAL) $(TARGET_VEC_NORMAL) $(TARGET_MM_NORMAL) $(TARGET_MV_NORMAL) $(TARGET_SP_NORMAL) $(TARGET_HEAT_NORMAL) $(TARGET_HEAT) $(TARGET_NORM) $(TARGET_NORM_NORMAL) $(TARGET_SPMV_CSR) $(TARGET_NOISE) $(TARGET_NOISE_NORMAL) $(TARGET_NOISE_DAEMON) $(TARGET_CP) $(TARGET_MCP) $(TARGET_MCPL)
+all: $(LIB_MAL) $(TARGET_MC) $(TARGET_VEC) $(TARGET_MAT) $(TARGET_MV) $(TARGET_SP) $(TARGET_RD) $(TARGET_LD) $(TARGET_SPMV) $(TARGET_SPMV_NORMAL) $(TARGET_MC_NORMAL) $(TARGET_VEC_NORMAL) $(TARGET_MM_NORMAL) $(TARGET_MV_NORMAL) $(TARGET_SP_NORMAL) $(TARGET_HEAT_NORMAL) $(TARGET_HEAT) $(TARGET_NORM) $(TARGET_NORM_NORMAL) $(TARGET_SPMV_CSR) $(TARGET_NOISE) $(TARGET_NOISE_NORMAL) $(TARGET_NOISE_DAEMON) $(TARGET_CP) $(TARGET_MCP) $(TARGET_MCPL) $(TARGET_VOTE)
 
 $(LIB_MAL): Makefile $(LIB_OBJS)
 	@mkdir -p $(dir $@)
@@ -205,6 +209,9 @@ $(TARGET_MCP): $(SRCS_MCP) malleable/include/malleable.hpp
 
 $(TARGET_MCPL): $(LIB_MAL) $(OBJS_MCPL)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS_MCPL) $(LIB_MAL) $(LIBS) -rdynamic
+
+$(TARGET_VOTE): $(LIB_MAL) $(OBJS_VOTE)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS_VOTE) $(LIB_MAL) $(LIBS)
 
 $(TARGET_LD): $(LIB_MAL) $(OBJS_LD)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS_LD) $(LIB_MAL) $(LIBS)
@@ -353,6 +360,9 @@ run_matvec_normal: $(TARGET_MV_NORMAL)
 run_sparse_normal: $(TARGET_SP_NORMAL)
 	$(MPIRUN) -n $(NP) --bind-to none ./$(TARGET_SP_NORMAL)
 
+VOTE_NP = 8
+VOTE_ENV = MAL_LOAD_BALANCING_ENABLED=0 MAL_EPOCH_INTERVAL_MS=25
+
 test: all
 	@total=$(TEST_RUNS); pass=0; fail=0; \
 	for iter in $$(seq 1 $$total); do \
@@ -369,6 +379,24 @@ test: all
 		echo "$$out" | grep -q "\[RESULT\] mat-mat OK" && echo "  [OK] matmat" || { echo "  [FAIL] matmat"; iter_ok=0; }; \
 		out=`$(MPIRUN) -n $(NP) --bind-to none ./$(TARGET_MC) 2>&1`; \
 		echo "$$out" | grep -q "\[RESULT\] montecarlo OK" && echo "  [OK] montecarlo" || { echo "  [FAIL] montecarlo"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=4 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) unanimous --expect=6 --commits=1 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote unanimous OK" && echo "  [OK] vote unanimous" || { echo "  [FAIL] vote unanimous"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=4 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) outlier --expect=6 --commits=1 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote outlier OK" && echo "  [OK] vote outlier" || { echo "  [FAIL] vote outlier"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=4 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) split --expect=4 --commits=0 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote split OK" && echo "  [OK] vote split" || { echo "  [FAIL] vote split"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=4 MAL_RESIZE_QUORUM=0.75 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) split --expect=6 --commits=1 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote split OK" && echo "  [OK] vote split quorum=0.75" || { echo "  [FAIL] vote split quorum=0.75"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=8 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) turnout --abstain=4 --expect=6 --commits=1 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote turnout OK" && echo "  [OK] vote turnout abstain=4" || { echo "  [FAIL] vote turnout abstain=4"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=8 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) turnout --abstain=5 --expect=8 --commits=0 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote turnout OK" && echo "  [OK] vote turnout abstain=5" || { echo "  [FAIL] vote turnout abstain=5"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=4 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) rebalance --expect=4 --commits=1 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote rebalance OK" && echo "  [OK] vote rebalance" || { echo "  [FAIL] vote rebalance"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=4 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) tie_grow --expect=5 --commits=1 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote tie_grow OK" && echo "  [OK] vote tie_grow" || { echo "  [FAIL] vote tie_grow"; iter_ok=0; }; \
+		out=`$(VOTE_ENV) MAL_INITIAL_SIZE=8 $(MPIRUN) -n $(VOTE_NP) --bind-to none ./$(TARGET_VOTE) tie_shrink --expect=6 --commits=1 2>&1`; \
+		echo "$$out" | grep -q "\[RESULT\] vote tie_shrink OK" && echo "  [OK] vote tie_shrink" || { echo "  [FAIL] vote tie_shrink"; iter_ok=0; }; \
 		if [ $$iter_ok -eq 1 ]; then \
 			pass=$$((pass+1)); echo "  => PASSED"; \
 		else \

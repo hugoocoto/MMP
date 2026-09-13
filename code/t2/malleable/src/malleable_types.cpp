@@ -565,8 +565,6 @@ struct MalState {
 
 		bool last_decision_settled{false};
 
-		bool last_decision_skip_cooldown{false};
-
 		std::vector<long long> vote_hist;
 
 	} lb;
@@ -618,13 +616,15 @@ struct MalState {
 
 	} timing;
 
+	struct {
+
+		void* mem;
+
+	} shared_mem;
+
 	MalState() noexcept = default;
 	MalState(const MalState&) = delete;
 	MalState& operator=(const MalState&) = delete;
-
-        struct {
-                void* mem;
-        } shared_mem;
 
 };
 

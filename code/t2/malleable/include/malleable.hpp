@@ -159,7 +159,6 @@ struct ResizeDecision {
 	bool done{false};
 	int target_active_size{-1};
 	bool settled{false};
-	bool skip_cooldown{false};
 
 };
 
@@ -265,7 +264,7 @@ void mal_set_decide_resize_func(DecideResizeFunc func);
 void mal_set_decide_resize_plugin(const char* path, const char* func_name);
 
 void mal_set_shared_mem(void* mem);
-void *mal_get_shared_mem(void);
+void* mal_get_shared_mem();
 
 void mal_set_epoch_interval_ms(int ms);
 void mal_set_resize_enabled(bool enabled);

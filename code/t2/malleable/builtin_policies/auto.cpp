@@ -26,6 +26,7 @@ struct AutoState {
 	double thr_single_proc{0.0};
 	int gate_fire_streak{0};
 	int gate_giveup_at_n{-1};
+	int last_n{-1};
 
 };
 
@@ -104,6 +105,16 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 	}
 
+	if (m.active_n != g_state.last_n) {
+
+		g_state.last_n = m.active_n;
+		g_state.gate_fire_streak = 0;
+		g_state.gate_giveup_at_n = -1;
+
+	}
+
+	update_baseline(m);
+
 	if (m.resize_cooldown_remaining > 0) {
 
 		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "Resize skipped: resize_cooldown=%d", m.resize_cooldown_remaining);
@@ -115,8 +126,6 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 	const int U = mal_size();
 
 	if (U == 1) return out;
-
-	update_baseline(m);
 
 	auto compute_efficiency = [&]() -> double {
 
@@ -154,7 +163,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 		if (mal_rank() == 0) {
 
 			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs-%s probe=%d active=%d thr=%.1f thr_1=%.1f speedup=%.2f eff=%.3f threshold=%.2f [lo=%d hi=%d]", tag, probe_n, m.active_n, m.global_thr, g_state.thr_single_proc, (g_state.thr_single_proc > kEpsThroughput ? m.global_thr / g_state.thr_single_proc : 0.0), eff, threshold, g_state.bs_lo, g_state.bs_hi);
-			MAL_TRACE_PROBE(0, probe_n, m.active_n, m.global_thr, g_state.thr_single_proc, (g_state.thr_single_proc > kEpsThroughput ? m.global_thr / g_state.thr_single_proc : 0.0), eff);
+			MAL_TRACE_PROBE(g.sync.compute_epoch.load(std::memory_order_acquire), probe_n, m.active_n, m.global_thr, g_state.thr_single_proc, (g_state.thr_single_proc > kEpsThroughput ? m.global_thr / g_state.thr_single_proc : 0.0), eff);
 
 		}
 

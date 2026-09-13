@@ -12,12 +12,16 @@ constexpr int kMinResizeCooldownEpochs = 2;
 constexpr double kImbHi = 1.50;
 constexpr double kMinVoteTurnout = 0.5;
 
-void mal_set_shared_mem(void* mem){
-        g.shared_mem.mem = mem;
+void mal_set_shared_mem(void* mem) {
+
+	g.shared_mem.mem = mem;
+
 }
 
-void *mal_get_shared_mem(void){
-        return g.shared_mem.mem;
+void* mal_get_shared_mem() {
+
+	return g.shared_mem.mem;
+
 }
 
 void mal_set_decide_resize_func(DecideResizeFunc func) {
@@ -277,10 +281,10 @@ EpochMetrics gather_epoch_metrics() {
 
 	m.resize_commit_count = g.timing.resize_count;
 
-	if (g.lb.resize_cooldown > 0) g.lb.resize_cooldown--;
-	if (g.lb.same_size_rebalance_cooldown > 0) g.lb.same_size_rebalance_cooldown--;
 	m.resize_cooldown_remaining = g.lb.resize_cooldown;
 	m.rebalance_cooldown_remaining = g.lb.same_size_rebalance_cooldown;
+	if (g.lb.resize_cooldown > 0) g.lb.resize_cooldown--;
+	if (g.lb.same_size_rebalance_cooldown > 0) g.lb.same_size_rebalance_cooldown--;
 	m.epoch_elapsed = r0_elapsed;
 	m.epoch_interval_ms = g.cfg.epoch_ms.load(std::memory_order_relaxed);
 	m.iterative_kernel = g.sync.iterative_kernel.load(std::memory_order_acquire);
@@ -2228,7 +2232,10 @@ void Resizer::commit_phase() {
 	const double epoch_secs = std::max(kEpsElapsed, g.cfg.epoch_ms.load() / 1000.0);
 	const bool fast_resp = g.cfg.fast_response.load(std::memory_order_relaxed);
 
-	const int adaptive_cooldown = fast_resp ? 0 : std::max(0, (int)std::ceil(commit_elapsed / epoch_secs));
+	double max_commit_elapsed = commit_elapsed;
+	MPI_Allreduce(MPI_IN_PLACE, &max_commit_elapsed, 1, MPI_DOUBLE, MPI_MAX, g.comm.universe);
+
+	const int adaptive_cooldown = fast_resp ? 0 : std::max(0, (int)std::ceil(max_commit_elapsed / epoch_secs));
 	const int min_cooldown = fast_resp ? 0 : kMinResizeCooldownEpochs;
 	const int base_resize_cooldown = std::max(adaptive_cooldown, min_cooldown);
 
@@ -2247,7 +2254,7 @@ void Resizer::commit_phase() {
 
 		g.lb.my_slow_streak = 0;
 
-		g.lb.resize_cooldown = g.lb.last_decision_skip_cooldown ? 0 : ((is_oscillation && !fast_resp) ? std::max(base_resize_cooldown * 2, 4) : base_resize_cooldown);
+		g.lb.resize_cooldown = (is_oscillation && !fast_resp) ? std::max(base_resize_cooldown * 2, 4) : base_resize_cooldown;
 
 		MAL_LOG_L(MAL_LOG_DEBUG, "RESIZE", "Resize %d->%d done in %.4f s (cooldown=%d%s)", old_a_size_, target_, commit_elapsed, g.lb.resize_cooldown, is_oscillation ? ", oscillation" : "");
 
@@ -2328,7 +2335,6 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 struct ResizeConsensus {
 
 	bool should_resize{false};
-	bool skip_cooldown{false};
 	int target{-1};
 	int active_size{-1};
 	unsigned long long local_decision_epoch{0};
@@ -2382,16 +2388,23 @@ ResizeConsensus resize_consensus() {
 	const long long local_active = (long long)g.comm.a_size;
 	const long long local_done = local_decision.done ? 1LL : 0LL;
 	const long long local_gen = (long long)g.loop_gen.load(std::memory_order_acquire);
+	const long long neutral = LLONG_MIN / 2;
+	const long long local_vote = (long long)local_decision.vote;
+	const long long local_target = (long long)local_decision.target_active_size;
 
-	long long reduce_in[5] = {local_active, local_finalize, local_done, local_gen, -local_gen};
-	long long reduce_out[5] = {};
+	long long reduce_in[9] = {local_active, local_finalize, local_done, local_gen, -local_gen, is_active ? local_vote : neutral, is_active ? -local_vote : neutral, is_active ? local_target : neutral, is_active ? -local_target : neutral};
+	long long reduce_out[9] = {};
 
-	MPI_Allreduce(reduce_in, reduce_out, 5, MPI_LONG_LONG, MPI_MAX, g.comm.universe);
+	MPI_Allreduce(reduce_in, reduce_out, 9, MPI_LONG_LONG, MPI_MAX, g.comm.universe);
 
 	const long long any_finalize = reduce_out[1];
 	const long long any_done = reduce_out[2];
 	const long long max_gen = reduce_out[3];
 	const long long min_gen = -reduce_out[4];
+	const long long max_vote = reduce_out[5];
+	const long long min_vote = -reduce_out[6];
+	const long long max_target = reduce_out[7];
+	const long long min_target = -reduce_out[8];
 
 	out.active_size = (int)reduce_out[0];
 
@@ -2416,19 +2429,31 @@ ResizeConsensus resize_consensus() {
 
 	}
 
+	if (max_vote == min_vote && max_target == min_target) {
+
+		out.should_resize = (max_vote == MAL_VOTE_RESIZE);
+		out.target = out.should_resize ? (int)max_target : -1;
+
+		if (g.comm.u_rank == 0) {
+
+			MAL_LOG_L(MAL_LOG_DEBUG, "VOTE", "unanimous vote=%lld target=%lld -> should=%d target=%d", max_vote, max_target, (int)out.should_resize, out.target);
+
+		}
+
+		g.timing.epoch_decision += MPI_Wtime() - t_decision_start;
+		g.timing.epoch_decision_count++;
+		return out;
+
+	}
+
 	const int U = g.comm.u_size;
 	const int active = out.active_size;
 	const size_t abstain_slot = (size_t)U + 1;
-	const size_t skip_grow_slot = (size_t)U + 2;
-	const size_t skip_shrink_slot = (size_t)U + 3;
-	const size_t skip_rebalance_slot = (size_t)U + 4;
 
 	std::vector<long long>& hist = g.lb.vote_hist;
-	hist.assign((size_t)U + 5, 0LL);
+	hist.assign((size_t)U + 2, 0LL);
 
 	if (is_active) {
-
-		const int t = local_decision.target_active_size;
 
 		if (local_decision.vote == MAL_VOTE_KEEP) {
 
@@ -2440,19 +2465,13 @@ ResizeConsensus resize_consensus() {
 
 		} else {
 
-			hist[(size_t)t] = 1;
-
-			if (local_decision.skip_cooldown) {
-
-				hist[t > active ? skip_grow_slot : t < active ? skip_shrink_slot : skip_rebalance_slot] = 1;
-
-			}
+			hist[(size_t)local_decision.target_active_size] = 1;
 
 		}
 
 	}
 
-	MPI_Allreduce(MPI_IN_PLACE, hist.data(), U + 5, MPI_LONG_LONG, MPI_SUM, g.comm.universe);
+	MPI_Allreduce(MPI_IN_PLACE, hist.data(), U + 2, MPI_LONG_LONG, MPI_SUM, g.comm.universe);
 
 	long long grow = 0;
 	long long shrink = 0;
@@ -2475,7 +2494,6 @@ ResizeConsensus resize_consensus() {
 	int lo = 1;
 	int hi = 0;
 	long long count = 0;
-	size_t skip_slot = 0;
 
 	if (voters > 0 && voters >= quorum_count(kMinVoteTurnout, voters + abstain)) {
 
@@ -2484,21 +2502,18 @@ ResizeConsensus resize_consensus() {
 			lo = active + 1;
 			hi = U;
 			count = grow;
-			skip_slot = skip_grow_slot;
 
 		} else if (shrink >= need) {
 
 			lo = 1;
 			hi = active - 1;
 			count = shrink;
-			skip_slot = skip_shrink_slot;
 
 		} else if (rebalance >= need) {
 
 			lo = active;
 			hi = active;
 			count = rebalance;
-			skip_slot = skip_rebalance_slot;
 
 		}
 
@@ -2523,13 +2538,12 @@ ResizeConsensus resize_consensus() {
 		}
 
 		out.should_resize = true;
-		out.skip_cooldown = hist[skip_slot] >= quorum_count(quorum, count);
 
 	}
 
 	if (g.comm.u_rank == 0) {
 
-		MAL_LOG_L(MAL_LOG_DEBUG, "VOTE", "keep=%lld grow=%lld shrink=%lld rebalance=%lld abstain=%lld need=%lld quorum=%.2f -> should=%d target=%d skip_cooldown=%d", keep, grow, shrink, rebalance, abstain, need, quorum, (int)out.should_resize, out.target, (int)out.skip_cooldown);
+		MAL_LOG_L(MAL_LOG_DEBUG, "VOTE", "keep=%lld grow=%lld shrink=%lld rebalance=%lld abstain=%lld need=%lld quorum=%.2f -> should=%d target=%d", keep, grow, shrink, rebalance, abstain, need, quorum, (int)out.should_resize, out.target);
 
 	}
 
@@ -2612,8 +2626,6 @@ bool prepare_resize_if_needed() {
 		return false;
 
 	}
-
-	g.lb.last_decision_skip_cooldown = consensus.skip_cooldown;
 
 	Resizer resizer(consensus.target);
 
@@ -2832,7 +2844,7 @@ void progress_thread() {
 	#endif
 
 	std::vector<std::function<void()>> batch;
-	const bool needs_initial_rampup = g.comm.a_size > 0 && g.comm.a_size < g.comm.u_size;
+	const bool needs_initial_rampup = g.comm.a_size > 0 && g.comm.a_size < g.comm.u_size && g.cfg.resize_policy != MAL_RESIZE_POLICY_FIXED_SEQUENCE;
 	const auto worker_start_tp = std::chrono::steady_clock::now();
 	auto next_resize_check = worker_start_tp + std::chrono::milliseconds(needs_initial_rampup ? 1 : effective_epoch_interval_ms());
 
