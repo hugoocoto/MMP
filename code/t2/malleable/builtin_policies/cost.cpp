@@ -170,7 +170,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 				if (g_state.phase == Phase::RAMP) g_state.best_g = 0.0;
 
-				out.should_resize = true;
+				out.vote = MAL_VOTE_RESIZE;
 				out.target_active_size = N;
 				return out;
 
@@ -202,7 +202,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 		if (N != U) {
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = U;
 			return out;
 
@@ -235,7 +235,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 			g_state.sample_thr_accum = 0.0;
 			g_state.phase = Phase::SAMPLE;
 			log_cost("sample-start");
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = g_state.sample_target;
 			return out;
 
@@ -246,7 +246,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 		if (U > 1) {
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = U - 1;
 
 		} else {
@@ -267,7 +267,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 			if (N > 1) {
 
-				out.should_resize = true;
+				out.vote = MAL_VOTE_RESIZE;
 				out.target_active_size = N - 1;
 
 			} else {
@@ -291,7 +291,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 			if (N > 1) {
 
-				out.should_resize = true;
+				out.vote = MAL_VOTE_RESIZE;
 				out.target_active_size = N - 1;
 
 			} else {
@@ -310,7 +310,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 		if (m.iterative_kernel && g_state.stop_streak < kCostStopStreak && N > 1) {
 
 			log_cost("descend-probe");
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = N - 1;
 
 			return out;
@@ -321,7 +321,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 		g_state.stop_streak = 0;
 		g_state.phase = Phase::SETTLED;
 		g_state.settle_recheck = kCostRecheckEpochs;
-		out.should_resize = true;
+		out.vote = MAL_VOTE_RESIZE;
 		out.target_active_size = g_state.best_n;
 
 		return out;
@@ -335,7 +335,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 		if (N != g_state.sample_target) {
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = g_state.sample_target;
 			return out;
 
@@ -377,7 +377,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 			g_state.sample_meas_left = g_config.sample_meas;
 			g_state.sample_thr_accum = 0.0;
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = next;
 			return out;
 
@@ -406,7 +406,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 				}
 
-				out.should_resize = true;
+				out.vote = MAL_VOTE_RESIZE;
 				out.target_active_size = fine_hi;
 				return out;
 
@@ -425,7 +425,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 		}
 
-		out.should_resize = true;
+		out.vote = MAL_VOTE_RESIZE;
 		out.target_active_size = g_state.sample_best_n;
 		return out;
 

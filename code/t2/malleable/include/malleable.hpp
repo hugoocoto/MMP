@@ -147,9 +147,15 @@ enum MalResizePolicy {
 
 };
 
+enum MalVote {
+
+	MAL_VOTE_KEEP, MAL_VOTE_RESIZE, MAL_VOTE_ABSTAIN,
+
+};
+
 struct ResizeDecision {
 
-	bool should_resize{false};
+	MalVote vote{MAL_VOTE_KEEP};
 	bool done{false};
 	int target_active_size{-1};
 	bool settled{false};
@@ -267,6 +273,7 @@ void mal_set_resize_enabled(bool enabled);
 [[nodiscard]] bool mal_get_load_balancing_enabled();
 
 void mal_set_resize_min_horizon_epochs(int epochs);
+void mal_set_resize_quorum(double quorum);
 
 [[nodiscard]] bool mal_env_bool(const char* name, bool fallback);
 [[nodiscard]] long mal_env_long(const char* name, long fallback, long min, long max);

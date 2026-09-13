@@ -12,7 +12,7 @@ static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 
 	if (m.imbalance_ratio() > 1.3 && m.active_n < universe) {
 
-		d.should_resize = true;
+		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = std::min(m.active_n + 2, universe);
 		return d;
 
@@ -20,7 +20,7 @@ static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 
 	if (m.any_settled && m.active_n > 2) {
 
-		d.should_resize = true;
+		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = std::max(m.active_n - 2, 2);
 		return d;
 

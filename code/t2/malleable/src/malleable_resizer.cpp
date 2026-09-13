@@ -10,6 +10,7 @@ constexpr int kLbGatherFields = 2;
 constexpr int kFusedGatherFields = 1 + kLbGatherFields;
 constexpr int kMinResizeCooldownEpochs = 2;
 constexpr double kImbHi = 1.50;
+constexpr double kMinVoteTurnout = 0.5;
 
 void mal_set_shared_mem(void* mem){
         g.shared_mem.mem = mem;
@@ -2286,7 +2287,7 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 		if (remaining_time < min_horizon_epochs * epoch_secs) {
 
-			decision.should_resize = false;
+			decision.vote = MAL_VOTE_KEEP;
 			decision.target_active_size = -1;
 			return decision;
 
@@ -2295,20 +2296,25 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 	}
 
 	decision = g.cfg.decide_resize_func(m);
-	g.lb.last_decision_settled = decision.settled;
-	g.lb.last_decision_skip_cooldown = decision.skip_cooldown;
 
-	if (!decision.should_resize) {
+	if (decision.vote != MAL_VOTE_KEEP && decision.vote != MAL_VOTE_RESIZE && decision.vote != MAL_VOTE_ABSTAIN) {
 
-		decision.target_active_size = -1;
-		return decision;
+		MAL_LOG_L(MAL_LOG_WARN, "EPOCH", "Decision returned invalid vote=%d, abstaining", (int)decision.vote);
+		decision.vote = MAL_VOTE_ABSTAIN;
 
 	}
 
-	if (decision.target_active_size <= 0) {
+	if (decision.vote == MAL_VOTE_RESIZE && decision.target_active_size <= 0) {
 
-		MAL_LOG_L(MAL_LOG_WARN, "EPOCH", "Decision returned invalid target=%d (valid range 1..%d)", decision.target_active_size, g.comm.u_size);
-		decision.should_resize = false;
+		MAL_LOG_L(MAL_LOG_WARN, "EPOCH", "Decision returned invalid target=%d (valid range 1..%d), abstaining", decision.target_active_size, g.comm.u_size);
+		decision.vote = MAL_VOTE_ABSTAIN;
+
+	}
+
+	g.lb.last_decision_settled = decision.vote != MAL_VOTE_ABSTAIN && decision.settled;
+
+	if (decision.vote != MAL_VOTE_RESIZE) {
+
 		decision.target_active_size = -1;
 		return decision;
 
@@ -2321,15 +2327,21 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 struct ResizeConsensus {
 
-	bool unanimous{false};
 	bool should_resize{false};
+	bool skip_cooldown{false};
 	int target{-1};
 	int active_size{-1};
 	unsigned long long local_decision_epoch{0};
 
 };
 
-ResizeConsensus unanimous_resize_decision() {
+inline long long quorum_count(double fraction, long long n) {
+
+	return (long long)std::ceil(fraction * (double)n - 1e-9);
+
+}
+
+ResizeConsensus resize_consensus() {
 
 	const double t_decision_start = MPI_Wtime();
 
@@ -2343,9 +2355,6 @@ ResizeConsensus unanimous_resize_decision() {
 	if (any_finalize_probe) {
 		g.sync.stop.store(true, std::memory_order_release);
 		g.sync.notify();
-		out.unanimous = true;
-		out.should_resize = false;
-		out.target = -1;
 		return out;
 	}
 
@@ -2370,41 +2379,26 @@ ResizeConsensus unanimous_resize_decision() {
 
 	}
 
-	const long long local_should = local_decision.should_resize ? 1LL : 0LL;
-	const long long local_target = local_decision.should_resize ? (long long)local_decision.target_active_size : -1LL;
 	const long long local_active = (long long)g.comm.a_size;
 	const long long local_done = local_decision.done ? 1LL : 0LL;
-	const long long any_active_flag = is_active ? 1LL : 0LL;
 	const long long local_gen = (long long)g.loop_gen.load(std::memory_order_acquire);
 
-	const long long send_should = is_active ? local_should : 0LL;
-	const long long send_neg_should = is_active ? -local_should : LLONG_MIN / 2;
-	const long long send_target = is_active ? local_target : -1LL;
-	const long long send_neg_target = is_active ? -local_target : LLONG_MIN / 2;
+	long long reduce_in[5] = {local_active, local_finalize, local_done, local_gen, -local_gen};
+	long long reduce_out[5] = {};
 
-	long long reduce_in[10] = {send_should, send_target, send_neg_should, send_neg_target, local_active, local_finalize, local_done, any_active_flag, local_gen, -local_gen};
-	long long reduce_out[10] = {};
+	MPI_Allreduce(reduce_in, reduce_out, 5, MPI_LONG_LONG, MPI_MAX, g.comm.universe);
 
-	MPI_Allreduce(reduce_in, reduce_out, 10, MPI_LONG_LONG, MPI_MAX, g.comm.universe);
+	const long long any_finalize = reduce_out[1];
+	const long long any_done = reduce_out[2];
+	const long long max_gen = reduce_out[3];
+	const long long min_gen = -reduce_out[4];
 
-	const long long max_should = reduce_out[0];
-	const long long max_target = reduce_out[1];
-	const long long min_should = -reduce_out[2];
-	const long long min_target = -reduce_out[3];
-	const long long any_finalize = reduce_out[5];
-	const long long any_done = reduce_out[6];
-	const bool any_active_voted = (reduce_out[7] != 0);
-	const long long max_gen = reduce_out[8];
-	const long long min_gen = -reduce_out[9];
+	out.active_size = (int)reduce_out[0];
 
 	if (any_finalize) {
 
 		g.sync.stop.store(true, std::memory_order_release);
 		g.sync.notify();
-		out.unanimous = true;
-		out.should_resize = false;
-		out.target = -1;
-		out.active_size = (int)reduce_out[4];
 		return out;
 
 	}
@@ -2418,22 +2412,124 @@ ResizeConsensus unanimous_resize_decision() {
 		}
 
 		g.sync.notify();
-		out.unanimous = true;
-		out.should_resize = false;
-		out.target = -1;
-		out.active_size = (int)reduce_out[4];
 		return out;
 
 	}
 
-	out.unanimous = any_active_voted && (min_should == max_should) && (min_should == 0 || min_target == max_target);
-	out.should_resize = out.unanimous && min_should != 0;
-	out.target = out.should_resize ? (int)min_target : -1;
-	out.active_size = (int)reduce_out[4];
+	const int U = g.comm.u_size;
+	const int active = out.active_size;
+	const size_t abstain_slot = (size_t)U + 1;
+	const size_t skip_grow_slot = (size_t)U + 2;
+	const size_t skip_shrink_slot = (size_t)U + 3;
+	const size_t skip_rebalance_slot = (size_t)U + 4;
+
+	std::vector<long long>& hist = g.lb.vote_hist;
+	hist.assign((size_t)U + 5, 0LL);
+
+	if (is_active) {
+
+		const int t = local_decision.target_active_size;
+
+		if (local_decision.vote == MAL_VOTE_KEEP) {
+
+			hist[0] = 1;
+
+		} else if (local_decision.vote == MAL_VOTE_ABSTAIN) {
+
+			hist[abstain_slot] = 1;
+
+		} else {
+
+			hist[(size_t)t] = 1;
+
+			if (local_decision.skip_cooldown) {
+
+				hist[t > active ? skip_grow_slot : t < active ? skip_shrink_slot : skip_rebalance_slot] = 1;
+
+			}
+
+		}
+
+	}
+
+	MPI_Allreduce(MPI_IN_PLACE, hist.data(), U + 5, MPI_LONG_LONG, MPI_SUM, g.comm.universe);
+
+	long long grow = 0;
+	long long shrink = 0;
+	long long rebalance = 0;
+
+	for (int t = 1; t <= U; t++) {
+
+		if (t < active) shrink += hist[(size_t)t];
+		else if (t > active) grow += hist[(size_t)t];
+		else rebalance += hist[(size_t)t];
+
+	}
+
+	const long long keep = hist[0];
+	const long long abstain = hist[abstain_slot];
+	const long long voters = keep + grow + shrink + rebalance;
+	const double quorum = g.cfg.resize_quorum.load(std::memory_order_relaxed);
+	const long long need = std::max(voters / 2 + 1, quorum_count(quorum, voters));
+
+	int lo = 1;
+	int hi = 0;
+	long long count = 0;
+	size_t skip_slot = 0;
+
+	if (voters > 0 && voters >= quorum_count(kMinVoteTurnout, voters + abstain)) {
+
+		if (grow >= need) {
+
+			lo = active + 1;
+			hi = U;
+			count = grow;
+			skip_slot = skip_grow_slot;
+
+		} else if (shrink >= need) {
+
+			lo = 1;
+			hi = active - 1;
+			count = shrink;
+			skip_slot = skip_shrink_slot;
+
+		} else if (rebalance >= need) {
+
+			lo = active;
+			hi = active;
+			count = rebalance;
+			skip_slot = skip_rebalance_slot;
+
+		}
+
+	}
+
+	if (count > 0) {
+
+		const long long median_pos = (lo > active) ? (count + 1) / 2 : count / 2 + 1;
+		long long seen = 0;
+
+		for (int t = lo; t <= hi; t++) {
+
+			seen += hist[(size_t)t];
+
+			if (seen >= median_pos) {
+
+				out.target = t;
+				break;
+
+			}
+
+		}
+
+		out.should_resize = true;
+		out.skip_cooldown = hist[skip_slot] >= quorum_count(quorum, count);
+
+	}
 
 	if (g.comm.u_rank == 0) {
 
-		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "Consensus from distributed eval: unanimous=%d should=%d target=%d", (int)out.unanimous, (int)out.should_resize, out.target);
+		MAL_LOG_L(MAL_LOG_DEBUG, "VOTE", "keep=%lld grow=%lld shrink=%lld rebalance=%lld abstain=%lld need=%lld quorum=%.2f -> should=%d target=%d skip_cooldown=%d", keep, grow, shrink, rebalance, abstain, need, quorum, (int)out.should_resize, out.target, (int)out.skip_cooldown);
 
 	}
 
@@ -2502,10 +2598,10 @@ bool prepare_resize_if_needed() {
 
 	}
 
-	ResizeConsensus consensus = unanimous_resize_decision();
+	ResizeConsensus consensus = resize_consensus();
 	MAL_LOG_L(MAL_LOG_DEBUG, "EPOCH", "Consensus: should=%d target=%d active=%d", (int)consensus.should_resize, consensus.target, consensus.active_size);
 
-	if (!consensus.unanimous || !consensus.should_resize) {
+	if (!consensus.should_resize) {
 
 		return false;
 
@@ -2516,6 +2612,8 @@ bool prepare_resize_if_needed() {
 		return false;
 
 	}
+
+	g.lb.last_decision_skip_cooldown = consensus.skip_cooldown;
 
 	Resizer resizer(consensus.target);
 

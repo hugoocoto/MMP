@@ -7,7 +7,7 @@ extern "C" ResizeDecision montecarlo_policy(const EpochMetrics& m) {
 
 	if (m.imbalance_ratio() > 1.3) {
 
-		d.should_resize = true;
+		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = m.active_n + 1;
 		return d;
 
@@ -15,7 +15,7 @@ extern "C" ResizeDecision montecarlo_policy(const EpochMetrics& m) {
 
 	if (m.any_settled && m.active_n > 2) {
 
-		d.should_resize = true;
+		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = m.active_n - 1;
 		return d;
 

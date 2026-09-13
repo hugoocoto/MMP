@@ -135,7 +135,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 			case GateAction::Rebalance:
 				MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "imbalance gate: ratio=%.2f (>%.2f) -> same-size rebalance N=%d", m.imbalance_ratio(), kImbHi, m.active_n);
-				out.should_resize = true;
+				out.vote = MAL_VOTE_RESIZE;
 				out.target_active_size = m.active_n;
 				return out;
 
@@ -173,7 +173,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 			if (m.active_n != 1) {
 
-				out.should_resize = true;
+				out.vote = MAL_VOTE_RESIZE;
 				out.target_active_size = 1;
 
 			}
@@ -190,7 +190,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 		if (m.active_n != U) {
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = U;
 
 		}
@@ -213,7 +213,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: baseline ready thr_1=%.1f (%d epochs), going to N=%d", g_state.thr_single_proc, kMinBaselineEpochs, U);
 
-		out.should_resize = true;
+		out.vote = MAL_VOTE_RESIZE;
 		out.target_active_size = U;
 
 		return out;
@@ -222,7 +222,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 		if (m.active_n != U) {
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = U;
 
 			return out;
@@ -252,7 +252,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 			g_state.phase = Phase::SEARCHING;
 			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: N=%d below threshold (eff=%.3f < %.2f), searching [%d,%d] probe=%d", U, eff, threshold, g_state.bs_lo, g_state.bs_hi, probe);
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = probe;
 
 			return out;
@@ -287,7 +287,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 				if (best != m.active_n) {
 
-					out.should_resize = true;
+					out.vote = MAL_VOTE_RESIZE;
 					out.target_active_size = best;
 
 				}
@@ -300,7 +300,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 			MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "bs: [%d,%d] next probe=%d", g_state.bs_lo, g_state.bs_hi, probe);
 
-			out.should_resize = true;
+			out.vote = MAL_VOTE_RESIZE;
 			out.target_active_size = probe;
 
 			return out;
@@ -327,7 +327,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 				if (m.active_n < U) {
 
-					out.should_resize = true;
+					out.vote = MAL_VOTE_RESIZE;
 					out.target_active_size = m.active_n + 1;
 
 					return out;
@@ -342,7 +342,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 				g_state.bs_hi = m.active_n;
 				MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "probe: N=%d failed (eff=%.3f < %.2f), returning to bs_lo=%d", m.active_n, eff, threshold, g_state.bs_lo);
-				out.should_resize = true;
+				out.vote = MAL_VOTE_RESIZE;
 				out.target_active_size = g_state.bs_lo;
 
 			} else {
@@ -356,7 +356,7 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 				if (probe != m.active_n) {
 
-					out.should_resize = true;
+					out.vote = MAL_VOTE_RESIZE;
 					out.target_active_size = probe;
 
 				}

@@ -213,6 +213,19 @@ void mal_set_resize_min_horizon_epochs(int epochs) {
 
 }
 
+void mal_set_resize_quorum(double quorum) {
+
+	if (!(quorum > 0.5 && quorum <= 1.0)) {
+
+		MAL_LOG_L(MAL_LOG_WARN, "CONFIG", "Ignoring resize quorum=%g (must be in (0.5, 1])", quorum);
+		return;
+
+	}
+
+	g.cfg.resize_quorum.store(quorum, std::memory_order_relaxed);
+
+}
+
 void mal_set_attach_exec_mode(MalAttachExecMode mode) {
 
 	if (mode != MAL_ATTACH_SYNC && mode != MAL_ATTACH_ASYNC) {
@@ -302,6 +315,7 @@ void load_env_config() {
 	g.cfg.stencil_resid_reduces.store((int)mal_env_long("MAL_STENCIL_RESID_REDUCES", g.cfg.stencil_resid_reduces.load(), 1, INT_MAX));
 	g.cfg.stencil_epoch_steps.store((int)mal_env_long("MAL_STENCIL_EPOCH_STEPS", g.cfg.stencil_epoch_steps.load(), 1, INT_MAX));
 	g.cfg.epoch_change_mode.store((int)mal_env_long("MAL_EPOCH_CHANGE_MODE", g.cfg.epoch_change_mode.load(), MAL_EPOCH_CHANGE_RECALCULATE, MAL_EPOCH_CHANGE_USE_LAST_DECISION));
+	mal_set_resize_quorum(mal_env_double("MAL_RESIZE_QUORUM", g.cfg.resize_quorum.load(), 0.0, 1.0));
 
 	g.cfg.enabled.store(mal_env_bool("MAL_RESIZE_ENABLED", g.cfg.enabled.load()));
 	g.cfg.malleability_enabled.store(mal_env_bool("MAL_MALLEABILITY_ENABLED", g.cfg.malleability_enabled.load()));

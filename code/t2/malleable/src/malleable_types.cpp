@@ -421,6 +421,7 @@ struct MalState {
 		ResizeStateSaveFunc decide_resize_state_save{nullptr};
 		ResizeStateLoadFunc decide_resize_state_load{nullptr};
 		std::atomic<double> resize_min_horizon_epochs{2.0};
+		std::atomic<double> resize_quorum{1.0};
 		std::atomic<int> epoch_ms{kDefaultEpochIntervalMs};
 		std::atomic<int> epoch_change_mode{kDefaultEpochChangeMode};
 		std::atomic<bool> enabled{true};
@@ -565,6 +566,8 @@ struct MalState {
 		bool last_decision_settled{false};
 
 		bool last_decision_skip_cooldown{false};
+
+		std::vector<long long> vote_hist;
 
 	} lb;
 
