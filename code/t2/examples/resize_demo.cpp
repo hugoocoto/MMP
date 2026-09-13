@@ -1,11 +1,11 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cmath>
-#include <algorithm>
-#include <unistd.h>
-#include <mpi.h>
 #include "malleable.hpp"
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <unistd.h>
 
 int main(int argc, char* argv[]) {
 
@@ -16,7 +16,6 @@ int main(int argc, char* argv[]) {
 	if (dynamic) {
 
 		setenv("MAL_FAST_RESPONSE", "1", 0);
-
 	}
 
 	mal_init();
@@ -31,11 +30,9 @@ int main(int argc, char* argv[]) {
 	unsigned int rng_state = (unsigned int)(mal_rank() * 2654435761u + 1u);
 
 	auto jittered_us = [&](long base_us) -> useconds_t {
-
 		if (jitter_pct <= 0 || base_us <= 0) {
 
 			return (useconds_t)base_us;
-
 		}
 
 		const double r = (double)rand_r(&rng_state) / (double)RAND_MAX * 2.0 - 1.0;
@@ -45,11 +42,9 @@ int main(int argc, char* argv[]) {
 		if (v < 0.0) {
 
 			v = 0.0;
-
 		}
 
 		return (useconds_t)v;
-
 	};
 
 	float* data = nullptr;
@@ -57,7 +52,6 @@ int main(int argc, char* argv[]) {
 	if (mal_rank() == 0) {
 
 		data = static_cast<float*>(std::calloc(static_cast<size_t>(N), sizeof(float)));
-
 	}
 
 	long i, lim;
@@ -81,9 +75,7 @@ int main(int argc, char* argv[]) {
 		} else {
 
 			MAL_LOG(MAL_LOG_INFO, "[EXPECTED] mode=static phase=scale-up target=%d reason=all_ranks_fast", universe);
-
 		}
-
 	}
 
 	for (; i < lim; i++) {
@@ -94,8 +86,8 @@ int main(int argc, char* argv[]) {
 
 		if (dynamic) {
 
-			constexpr double TWO_PI = 6.28318530717958647692;
-			const double phase_rad = TWO_PI * elapsed / period_sec;
+			constexpr double kTwoPi = 6.28318530717958647692;
+			const double phase_rad = kTwoPi * elapsed / period_sec;
 			const double amp = std::clamp(amp_pct, 0.0, 100.0) / 100.0;
 
 			const double slow_fraction = 0.5 + 0.5 * amp * std::sin(phase_rad);
@@ -105,20 +97,17 @@ int main(int argc, char* argv[]) {
 			if (slow_thresh < 1) {
 
 				slow_thresh = 1;
-
 			}
 
 			if (slow_thresh > universe) {
 
 				slow_thresh = universe;
-
 			}
 
 			if (mal_rank() == 0 && slow_thresh != last_logged_slow_thresh) {
 
 				MAL_LOG(MAL_LOG_INFO, "[EXPECTED] event=phase_change t_rel=%.4f slow_fraction=%.2f slow_thresh=%d active=%d", elapsed, slow_fraction, slow_thresh, mal_active_size());
 				last_logged_slow_thresh = slow_thresh;
-
 			}
 
 			if (mal_rank() >= slow_thresh) {
@@ -128,7 +117,6 @@ int main(int argc, char* argv[]) {
 			} else {
 
 				usleep(jittered_us(fast_us));
-
 			}
 
 		} else {
@@ -141,7 +129,6 @@ int main(int argc, char* argv[]) {
 
 					MAL_LOG(MAL_LOG_INFO, "[EXPECTED] event=phase_start phase=scale-up t_rel=%.4f target=%d", elapsed, mal_size());
 					phase_logged_up = true;
-
 				}
 
 				usleep(jittered_us(fast_us));
@@ -152,7 +139,6 @@ int main(int argc, char* argv[]) {
 
 					MAL_LOG(MAL_LOG_INFO, "[EXPECTED] event=phase_start phase=scale-down t_rel=%.4f target=%d reason=ranks_geq_%d_slow", elapsed, slow_rank, slow_rank);
 					phase_logged_down = true;
-
 				}
 
 				if (mal_rank() >= slow_rank) {
@@ -162,11 +148,8 @@ int main(int argc, char* argv[]) {
 				} else {
 
 					usleep(jittered_us(fast_us));
-
 				}
-
 			}
-
 		}
 
 		const int cur_active = mal_active_size();
@@ -175,13 +158,11 @@ int main(int argc, char* argv[]) {
 
 			MAL_LOG(MAL_LOG_INFO, "[DEMO] *** Resize: %d -> %d ranks (t=%.2fs) ***", prev_size, cur_active, elapsed);
 			prev_size = cur_active;
-
 		}
 
 		MAL_LOG(MAL_LOG_INFO, "[DEMO] rank=%d iter=%ld/%ld done (active=%d t=%.2fs)", mal_rank(), i, N, cur_active, elapsed);
 
 		mal_check_for(f);
-
 	}
 
 	mal_finalize();
@@ -196,21 +177,16 @@ int main(int argc, char* argv[]) {
 
 				if (errors < 20) {
 
-					MAL_LOG(MAL_LOG_INFO, "[DEBUG] data[%ld]=%.1f expected=%.1f", j, data[j], (float)(j+1));
-
+					MAL_LOG(MAL_LOG_INFO, "[DEBUG] data[%ld]=%.1f expected=%.1f", j, data[j], (float)(j + 1));
 				}
 
 				errors++;
-
 			}
-
 		}
 
 		MAL_LOG(MAL_LOG_INFO, "[RESULT] resize_demo %s (%d errors)", errors == 0 ? "OK" : "WRONG", errors);
 		std::free(data);
-
 	}
 
 	return EXIT_SUCCESS;
-
 }

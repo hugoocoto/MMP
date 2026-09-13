@@ -1,0 +1,4 @@
+InheritParentConfig: true
+CheckOptions:
+  readability-identifier-naming.ParameterIgnoredRegexp: '.*[A-Z].*'
+  readability-identifier-naming.LocalVariableIgnoredRegexp: '.*[A-Z].*'

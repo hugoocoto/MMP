@@ -1,8 +1,8 @@
-#include <algorithm>
-#include <cstdlib>
-#include <mpi.h>
 #include "malleable.hpp"
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <algorithm>
+#include <cstdlib>
 
 static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 
@@ -15,7 +15,6 @@ static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = std::min(m.active_n + 2, universe);
 		return d;
-
 	}
 
 	if (m.any_settled && m.active_n > 2) {
@@ -23,11 +22,9 @@ static ResizeDecision my_resize_policy(const EpochMetrics& m) {
 		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = std::max(m.active_n - 2, 2);
 		return d;
-
 	}
 
 	return d;
-
 }
 
 int main(int argc, char* argv[]) {
@@ -42,7 +39,6 @@ int main(int argc, char* argv[]) {
 	if (mal_rank() == 0) {
 
 		data = static_cast<double*>(std::calloc(static_cast<size_t>(N), sizeof(double)));
-
 	}
 
 	long i, lim;
@@ -53,7 +49,6 @@ int main(int argc, char* argv[]) {
 
 		data[i] = static_cast<double>(i + 1);
 		mal_check_for(f);
-
 	}
 
 	mal_finalize();
@@ -67,16 +62,12 @@ int main(int argc, char* argv[]) {
 			if (data[j] != static_cast<double>(j + 1)) {
 
 				errors++;
-
 			}
-
 		}
 
 		MAL_LOG(MAL_LOG_INFO, "[RESULT] custom_policy %s (%d errors)", errors == 0 ? "OK" : "WRONG", errors);
 		std::free(data);
-
 	}
 
 	return EXIT_SUCCESS;
-
 }

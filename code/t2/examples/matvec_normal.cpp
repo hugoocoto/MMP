@@ -1,9 +1,9 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cmath>
-#include <vector>
-#include <mpi.h>
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
 
 int main(int argc, char* argv[]) {
 
@@ -24,12 +24,10 @@ int main(int argc, char* argv[]) {
 		if (world_rank == 0) {
 
 			std::fprintf(stderr, "[ERROR] m (%ld) must be divisible by world_size (%d)\n", M, world_size);
-
 		}
 
 		MPI_Finalize();
 		return EXIT_FAILURE;
-
 	}
 
 	const long local_rows = M / world_size;
@@ -48,11 +46,8 @@ int main(int argc, char* argv[]) {
 			for (long c = 0; c < K; c++) {
 
 				full_A[static_cast<size_t>(r * K + c)] = static_cast<float>(r + 1);
-
 			}
-
 		}
-
 	}
 
 	std::vector<float> local_A(static_cast<size_t>(local_rows * K));
@@ -66,7 +61,7 @@ int main(int argc, char* argv[]) {
 
 	#if !BENCH_CSV
 
-		const useconds_t delay_us = example_delay_us(100000);
+	const useconds_t delay_us = example_delay_us(100000);
 
 	#endif
 
@@ -81,19 +76,16 @@ int main(int argc, char* argv[]) {
 			for (long k = 0; k < K; k++) {
 
 				acc += local_A[static_cast<size_t>(r * K + k)] * x[static_cast<size_t>(k)];
-
 			}
-
 		}
 
 		local_y[static_cast<size_t>(r)] = acc;
 
 		#if !BENCH_CSV
 
-			usleep(delay_us);
+		usleep(delay_us);
 
 		#endif
-
 	}
 
 	MPI_Gather(local_y.data(), static_cast<int>(local_rows), MPI_FLOAT, full_y.data(), static_cast<int>(local_rows), MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -104,33 +96,29 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("matvec", "normal", "mv", world_size, world_size, M, t1 - t0, 0);
+		print_bench_csv("matvec", "normal", "mv", world_size, world_size, M, t1 - t0, 0);
 
 		#else
 
-			int errors = 0;
+		int errors = 0;
 
-			for (long r = 0; r < M; r++) {
+		for (long r = 0; r < M; r++) {
 
-				const float expected = static_cast<float>(r + 1) * static_cast<float>(K);
+			const float expected = static_cast<float>(r + 1) * static_cast<float>(K);
 
-				if (std::fabs(full_y[static_cast<size_t>(r)] - expected) > 1e-3f) {
+			if (std::fabs(full_y[static_cast<size_t>(r)] - expected) > 1e-3f) {
 
-					errors++;
-					break;
-
-				}
-
+				errors++;
+				break;
 			}
+		}
 
-			std::printf("[RESULT] mat-vec %s (M=%ld K=%ld errors=%d)\n", errors == 0 ? "OK" : "WRONG", M, K, errors);
-			std::printf("[TIME] matvec normal mpi np=%d seconds=%.6f\n", world_size, t1 - t0);
+		std::printf("[RESULT] mat-vec %s (M=%ld K=%ld errors=%d)\n", errors == 0 ? "OK" : "WRONG", M, K, errors);
+		std::printf("[TIME] matvec normal mpi np=%d seconds=%.6f\n", world_size, t1 - t0);
 
 		#endif
-
 	}
 
 	MPI_Finalize();
 	return EXIT_SUCCESS;
-
 }

@@ -1,10 +1,10 @@
+#include "malleable.hpp"
+#include "example_utils.hpp"
+#include <mpi.h>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
-#include <mpi.h>
-#include "malleable.hpp"
-#include "example_utils.hpp"
 
 static const char* g_scenario = "";
 static int g_abstain = 0;
@@ -20,19 +20,16 @@ static ResizeDecision scenario_vote(const EpochMetrics& m) {
 	if (r == 0) {
 
 		g_commits_seen.store(m.resize_commit_count, std::memory_order_relaxed);
-
 	}
 
 	if (m.resize_commit_count > 0) {
 
 		return d;
-
 	}
 
 	if (r == 0) {
 
 		g_voting_epochs.fetch_add(1, std::memory_order_relaxed);
-
 	}
 
 	if (std::strcmp(g_scenario, "unanimous") == 0) {
@@ -43,7 +40,12 @@ static ResizeDecision scenario_vote(const EpochMetrics& m) {
 	} else if (std::strcmp(g_scenario, "outlier") == 0) {
 
 		d.vote = MAL_VOTE_RESIZE;
-		d.target_active_size = n + (r == 0 ? 1 : r == 1 ? 4 : 2);
+		d.target_active_size = (r == 0) ? n + 1 : n + 2;
+
+		if (r == 1) {
+
+			d.target_active_size = n + 4;
+		}
 
 	} else if (std::strcmp(g_scenario, "split") == 0) {
 
@@ -60,7 +62,6 @@ static ResizeDecision scenario_vote(const EpochMetrics& m) {
 
 			d.vote = MAL_VOTE_RESIZE;
 			d.target_active_size = n - 2;
-
 		}
 
 	} else if (std::strcmp(g_scenario, "rebalance") == 0) {
@@ -77,11 +78,9 @@ static ResizeDecision scenario_vote(const EpochMetrics& m) {
 
 		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = (r < n / 2) ? n - 6 : n - 2;
-
 	}
 
 	return d;
-
 }
 
 int main(int argc, char* argv[]) {
@@ -102,7 +101,6 @@ int main(int argc, char* argv[]) {
 
 		usleep(500);
 		mal_check_for(f);
-
 	}
 
 	mal_finalize();
@@ -115,9 +113,7 @@ int main(int argc, char* argv[]) {
 		const bool ok = final_size == expect_size && commits == expect_commits && voting_epochs >= (expect_commits == 0 ? 3 : 1);
 
 		MAL_LOG(ok ? MAL_LOG_INFO : MAL_LOG_ERROR, "[RESULT] vote %s %s (size=%d expected=%ld, commits=%d expected=%ld, voting_epochs=%d)", g_scenario, ok ? "OK" : "WRONG", final_size, expect_size, commits, expect_commits, voting_epochs);
-
 	}
 
 	return EXIT_SUCCESS;
-
 }

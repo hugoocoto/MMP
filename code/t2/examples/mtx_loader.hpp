@@ -1,16 +1,16 @@
 #pragma once
 
-#include <cstdio>
-#include <cstdint>
+#include <algorithm>
 #include <climits>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <algorithm>
 
 struct CsrMatrix {
 
@@ -28,24 +28,24 @@ struct CsrMatrix {
 		for (long r = 0; r < rows; r++) {
 
 			m = std::max(m, row_ptr[(size_t)r + 1] - row_ptr[(size_t)r]);
-
 		}
 
 		return m;
-
 	}
 
 	double mean_row_nnz() const {
 
 		return rows > 0 ? (double)nnz / (double)rows : 0.0;
-
 	}
-
 };
 
 namespace mtxdetail {
 
-struct Coo { int r; int c; float v; };
+struct Coo {
+	int r;
+	int c;
+	float v;
+};
 
 inline void build_csr_from_coo(long rows, long cols, std::vector<Coo>& coo, CsrMatrix& out) {
 
@@ -57,13 +57,11 @@ inline void build_csr_from_coo(long rows, long cols, std::vector<Coo>& coo, CsrM
 	for (const auto& e : coo) {
 
 		out.row_ptr[(size_t)e.r + 1]++;
-
 	}
 
 	for (long r = 0; r < rows; r++) {
 
 		out.row_ptr[(size_t)r + 1] += out.row_ptr[(size_t)r];
-
 	}
 
 	out.col_idx.assign((size_t)out.nnz, 0);
@@ -76,9 +74,7 @@ inline void build_csr_from_coo(long rows, long cols, std::vector<Coo>& coo, CsrM
 		const long pos = cursor[(size_t)e.r]++;
 		out.col_idx[(size_t)pos] = e.c;
 		out.vals[(size_t)pos] = e.v;
-
 	}
-
 }
 
 }
@@ -87,11 +83,17 @@ inline bool load_matrix_market(const std::string& path, CsrMatrix& out, std::str
 
 	std::ifstream in(path);
 
-	if (!in) { err = "cannot open file: " + path; return false; }
+	if (!in) {
+		err = "cannot open file: " + path;
+		return false;
+	}
 
 	std::string line;
 
-	if (!std::getline(in, line)) { err = "empty file"; return false; }
+	if (!std::getline(in, line)) {
+		err = "empty file";
+		return false;
+	}
 
 	bool is_pattern = false, is_symmetric = false, is_skew = false;
 	{
@@ -99,18 +101,31 @@ inline bool load_matrix_market(const std::string& path, CsrMatrix& out, std::str
 		std::string tag, object, format, field, symmetry;
 		std::istringstream bs(line);
 		bs >> tag >> object >> format >> field >> symmetry;
-		auto low = [](std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); return s; };
-		tag = low(tag); object = low(object); format = low(format); field = low(field); symmetry = low(symmetry);
+		auto low = [](std::string s) { for (auto& c : s){ c = (char)std::tolower((unsigned char)c);
+} return s; };
+		tag = low(tag);
+		object = low(object);
+		format = low(format);
+		field = low(field);
+		symmetry = low(symmetry);
 
-		if (tag.rfind("%%matrixmarket", 0) != 0) { err = "missing %%MatrixMarket banner"; return false; }
+		if (tag.rfind("%%matrixmarket", 0) != 0) {
+			err = "missing %%MatrixMarket banner";
+			return false;
+		}
 
-		if (format != "coordinate") { err = "only 'coordinate' (sparse) format supported, got: " + format; return false; }
+		if (format != "coordinate") {
+			err = "only 'coordinate' (sparse) format supported, got: " + format;
+			return false;
+		}
 
-		if (field == "complex" || symmetry == "hermitian") { err = "complex/hermitian matrices not supported"; return false; }
+		if (field == "complex" || symmetry == "hermitian") {
+			err = "complex/hermitian matrices not supported";
+			return false;
+		}
 		is_pattern = (field == "pattern");
 		is_symmetric = (symmetry == "symmetric");
 		is_skew = (symmetry == "skew-symmetric");
-
 	}
 
 	long M = 0, N = 0, declared_nnz = 0;
@@ -123,23 +138,32 @@ inline bool load_matrix_market(const std::string& path, CsrMatrix& out, std::str
 			if (line.empty() || line[0] == '%') {
 
 				continue;
-
 			}
 
 			std::istringstream hs(line);
 
-			if (!(hs >> M >> N >> declared_nnz)) { err = "malformed size header"; return false; }
+			if (!(hs >> M >> N >> declared_nnz)) {
+				err = "malformed size header";
+				return false;
+			}
 			got = true;
 			break;
-
 		}
 
-		if (!got) { err = "missing size header"; return false; }
+		if (!got) {
+			err = "missing size header";
+			return false;
+		}
 
-		if (M <= 0 || N <= 0 || declared_nnz < 0) { err = "non-positive dimensions"; return false; }
+		if (M <= 0 || N <= 0 || declared_nnz < 0) {
+			err = "non-positive dimensions";
+			return false;
+		}
 
-		if (M > INT_MAX || N > INT_MAX) { err = "matrix dimension exceeds int index range"; return false; }
-
+		if (M > INT_MAX || N > INT_MAX) {
+			err = "matrix dimension exceeds int index range";
+			return false;
+		}
 	}
 
 	std::vector<mtxdetail::Coo> coo;
@@ -152,37 +176,43 @@ inline bool load_matrix_market(const std::string& path, CsrMatrix& out, std::str
 		if (line.empty() || line[0] == '%') {
 
 			continue;
-
 		}
 
 		std::istringstream rs(line);
 		long r = 0, c = 0;
 		double v = 1.0;
 
-		if (!(rs >> r >> c)) { err = "malformed entry at line for nnz " + std::to_string(read); return false; }
+		if (!(rs >> r >> c)) {
+			err = "malformed entry at line for nnz " + std::to_string(read);
+			return false;
+		}
 
 		if (!is_pattern) { rs >> v; }
 		read++;
 
-		r--; c--;
+		r--;
+		c--;
 
-		if (r < 0 || r >= M || c < 0 || c >= N) { err = "index out of range"; return false; }
+		if (r < 0 || r >= M || c < 0 || c >= N) {
+			err = "index out of range";
+			return false;
+		}
 
 		coo.push_back({(int)r, (int)c, (float)v});
 
 		if ((is_symmetric || is_skew) && r != c) {
 
 			coo.push_back({(int)c, (int)r, (float)(is_skew ? -v : v)});
-
 		}
-
 	}
 
-	if (read != declared_nnz) { err = "truncated file: expected " + std::to_string(declared_nnz) + " entries, got " + std::to_string(read); return false; }
+	if (read != declared_nnz) {
+		err = "truncated file: expected " + std::to_string(declared_nnz) + " entries, got " + std::to_string(read);
+		return false;
+	}
 
 	mtxdetail::build_csr_from_coo(M, N, coo, out);
 	return true;
-
 }
 
 inline CsrMatrix generate_powerlaw(long n, long avg_deg, unsigned int seed, double s = 1.0) {
@@ -197,7 +227,6 @@ inline CsrMatrix generate_powerlaw(long n, long avg_deg, unsigned int seed, doub
 	for (long r = 0; r < n; r++) {
 
 		harmonic += 1.0 / std::pow((double)(r + 1), s);
-
 	}
 
 	const double scale = (double)avg_deg * (double)n / harmonic;
@@ -211,18 +240,15 @@ inline CsrMatrix generate_powerlaw(long n, long avg_deg, unsigned int seed, doub
 		if (d < 1) {
 
 			d = 1;
-
 		}
 
 		if (d > n) {
 
 			d = n;
-
 		}
 
 		degree[(size_t)r] = (int)d;
 		out.row_ptr[(size_t)r + 1] = out.row_ptr[(size_t)r] + d;
-
 	}
 
 	out.nnz = out.row_ptr[(size_t)n];
@@ -241,13 +267,10 @@ inline CsrMatrix generate_powerlaw(long n, long avg_deg, unsigned int seed, doub
 
 			out.col_idx[(size_t)(base + k)] = (int)(next() % (unsigned long)n);
 			out.vals[(size_t)(base + k)] = 0.5f + (float)(next() % 100u) * 0.01f;
-
 		}
-
 	}
 
 	return out;
-
 }
 
 inline CsrMatrix generate_clustered(long n, long avg_deg, unsigned int seed, double cluster_frac = 0.25, double contrast = 7.0) {
@@ -260,19 +283,16 @@ inline CsrMatrix generate_clustered(long n, long avg_deg, unsigned int seed, dou
 	if (cluster_frac < 0.0) {
 
 		cluster_frac = 0.0;
-
 	}
 
 	if (cluster_frac > 1.0) {
 
 		cluster_frac = 1.0;
-
 	}
 
 	if (contrast < 1.0) {
 
 		contrast = 1.0;
-
 	}
 
 	const double denom = cluster_frac * contrast + (1.0 - cluster_frac);
@@ -289,18 +309,15 @@ inline CsrMatrix generate_clustered(long n, long avg_deg, unsigned int seed, dou
 		if (d < 1) {
 
 			d = 1;
-
 		}
 
 		if (d > n) {
 
 			d = n;
-
 		}
 
 		degree[(size_t)r] = (int)d;
 		out.row_ptr[(size_t)r + 1] = out.row_ptr[(size_t)r] + d;
-
 	}
 
 	out.nnz = out.row_ptr[(size_t)n];
@@ -319,13 +336,10 @@ inline CsrMatrix generate_clustered(long n, long avg_deg, unsigned int seed, dou
 
 			out.col_idx[(size_t)(base + k)] = (int)(next() % (unsigned long)n);
 			out.vals[(size_t)(base + k)] = 0.5f + (float)(next() % 100u) * 0.01f;
-
 		}
-
 	}
 
 	return out;
-
 }
 
 inline CsrMatrix generate_spike(long n, long avg_deg, unsigned int seed, double contrast, long n_spikes) {
@@ -338,13 +352,11 @@ inline CsrMatrix generate_spike(long n, long avg_deg, unsigned int seed, double 
 	if (contrast < 1.0) {
 
 		contrast = 1.0;
-
 	}
 
 	if (n_spikes < 1) {
 
 		n_spikes = 1;
-
 	}
 
 	long spike_deg = (long)std::llround((double)avg_deg * contrast);
@@ -352,13 +364,11 @@ inline CsrMatrix generate_spike(long n, long avg_deg, unsigned int seed, double 
 	if (spike_deg < 1) {
 
 		spike_deg = 1;
-
 	}
 
 	if (spike_deg > n) {
 
 		spike_deg = n;
-
 	}
 
 	const long total_target = n * avg_deg;
@@ -372,9 +382,7 @@ inline CsrMatrix generate_spike(long n, long avg_deg, unsigned int seed, double 
 		if (light_deg < 1) {
 
 			light_deg = 1;
-
 		}
-
 	}
 
 	std::vector<char> is_spike((size_t)n, 0);
@@ -386,17 +394,14 @@ inline CsrMatrix generate_spike(long n, long avg_deg, unsigned int seed, double 
 		if (pos < 0) {
 
 			pos = 0;
-
 		}
 
 		if (pos >= n) {
 
 			pos = n - 1;
-
 		}
 
 		is_spike[(size_t)pos] = 1;
-
 	}
 
 	std::vector<int> degree((size_t)n);
@@ -408,18 +413,15 @@ inline CsrMatrix generate_spike(long n, long avg_deg, unsigned int seed, double 
 		if (d < 1) {
 
 			d = 1;
-
 		}
 
 		if (d > n) {
 
 			d = n;
-
 		}
 
 		degree[(size_t)r] = (int)d;
 		out.row_ptr[(size_t)r + 1] = out.row_ptr[(size_t)r] + d;
-
 	}
 
 	out.nnz = out.row_ptr[(size_t)n];
@@ -438,13 +440,10 @@ inline CsrMatrix generate_spike(long n, long avg_deg, unsigned int seed, double 
 
 			out.col_idx[(size_t)(base + k)] = (int)(next() % (unsigned long)n);
 			out.vals[(size_t)(base + k)] = 0.5f + (float)(next() % 100u) * 0.01f;
-
 		}
-
 	}
 
 	return out;
-
 }
 
 inline CsrMatrix build_synthetic(const char* pattern, long n, long avg_deg, unsigned int seed, double contrast, double cluster_frac, long n_spikes = 4) {
@@ -452,15 +451,12 @@ inline CsrMatrix build_synthetic(const char* pattern, long n, long avg_deg, unsi
 	if (pattern && std::strcmp(pattern, "uniform") == 0) {
 
 		return generate_clustered(n, avg_deg, seed, cluster_frac, 1.0);
-
 	}
 
 	if (pattern && std::strcmp(pattern, "spike") == 0) {
 
 		return generate_spike(n, avg_deg, seed, contrast, n_spikes);
-
 	}
 
 	return generate_clustered(n, avg_deg, seed, cluster_frac, contrast);
-
 }

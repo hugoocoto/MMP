@@ -1,9 +1,9 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cmath>
-#include <vector>
-#include <mpi.h>
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
 
 int main(int argc, char* argv[]) {
 
@@ -27,7 +27,6 @@ int main(int argc, char* argv[]) {
 	for (long i = 0; i < n; i++) {
 
 		u[(size_t)i + 1] = u0(c0 + i);
-
 	}
 
 	double local_sum0 = 0.0;
@@ -35,7 +34,6 @@ int main(int argc, char* argv[]) {
 	for (long i = 0; i < n; i++) {
 
 		local_sum0 += u[(size_t)i + 1];
-
 	}
 
 	double sum0 = 0.0;
@@ -53,9 +51,7 @@ int main(int argc, char* argv[]) {
 		if (r > 0) {
 
 			reduces = (int)r;
-
 		}
-
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
@@ -66,7 +62,8 @@ int main(int argc, char* argv[]) {
 		double sendL = u[1], sendR = u[(size_t)n], recvL = 0.0, recvR = 0.0;
 		MPI_Sendrecv(&sendL, 1, MPI_DOUBLE, left, 0, &recvR, 1, MPI_DOUBLE, right, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		MPI_Sendrecv(&sendR, 1, MPI_DOUBLE, right, 1, &recvL, 1, MPI_DOUBLE, left, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		u[0] = recvL; u[(size_t)n + 1] = recvR;
+		u[0] = recvL;
+		u[(size_t)n + 1] = recvR;
 
 		double local_res = 0.0;
 
@@ -75,7 +72,6 @@ int main(int argc, char* argv[]) {
 			un[(size_t)i] = u[(size_t)i] + alpha * (u[(size_t)i - 1] - 2.0 * u[(size_t)i] + u[(size_t)i + 1]);
 			const double d = un[(size_t)i] - u[(size_t)i];
 			local_res += d * d;
-
 		}
 
 		for (int rr = 0; rr < reduces; rr++) {
@@ -83,11 +79,9 @@ int main(int argc, char* argv[]) {
 			double res = 0.0;
 			MPI_Allreduce(&local_res, &res, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 			local_res = res / (double)world;
-
 		}
 
 		u.swap(un);
-
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
@@ -98,7 +92,6 @@ int main(int argc, char* argv[]) {
 	for (long i = 0; i < n; i++) {
 
 		local_sum += u[(size_t)i + 1];
-
 	}
 
 	double sum = 0.0;
@@ -108,19 +101,18 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("heat", "normal", "stencil", world, world, D, t1 - t0, 0);
+		print_bench_csv("heat", "normal", "stencil", world, world, D, t1 - t0, 0);
 
 		#else
 
-			(void)t0; (void)t1;
-			const double rel = std::fabs(sum - sum0) / std::max(1.0, std::fabs(sum0));
-			std::printf("[RESULT] heat_normal %s (cells=%ld steps=%ld world=%d sum_drift=%.2e)\n", rel < 1e-6 ? "OK" : "WRONG", D, T, world, rel);
+		(void)t0;
+		(void)t1;
+		const double rel = std::fabs(sum - sum0) / std::max(1.0, std::fabs(sum0));
+		std::printf("[RESULT] heat_normal %s (cells=%ld steps=%ld world=%d sum_drift=%.2e)\n", rel < 1e-6 ? "OK" : "WRONG", D, T, world, rel);
 
 		#endif
-
 	}
 
 	MPI_Finalize();
 	return EXIT_SUCCESS;
-
 }

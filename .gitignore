@@ -6,6 +6,10 @@ docs
 build/
 .vscode/
 .*
+!.gitignore
+!.clang-format
+!.clang-tidy
+!.clangd
 out/
 congress/
 slides/

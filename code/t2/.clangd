@@ -1,0 +1,24 @@
+CompileFlags:
+  Add:
+    - -xc++
+    - -std=c++20
+---
+If:
+  PathMatch: malleable/(src|include)/.*
+CompileFlags:
+  Add:
+    - -I../include
+---
+If:
+  PathMatch: malleable/builtin_policies/.*
+CompileFlags:
+  Add:
+    - -I../include
+    - -include
+    - ../src/malleable_resizer.cpp
+---
+If:
+  PathMatch: examples/.*
+CompileFlags:
+  Add:
+    - -I../malleable/include

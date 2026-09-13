@@ -1,9 +1,9 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cmath>
-#include <mpi.h>
 #include "malleable.hpp"
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 int main(int argc, char* argv[]) {
 
@@ -26,17 +26,13 @@ int main(int argc, char* argv[]) {
 			for (long c = 0; c < K; c++) {
 
 				A[r * K + c] = static_cast<float>(r + 1);
-
 			}
-
 		}
 
 		for (long i = 0; i < K * N; i++) {
 
 			B[i] = 1.0f;
-
 		}
-
 	}
 
 	const double t0 = MPI_Wtime();
@@ -45,7 +41,7 @@ int main(int argc, char* argv[]) {
 
 	#if !BENCH_CSV
 
-		const useconds_t delay_us = example_delay_us(100000);
+	const useconds_t delay_us = example_delay_us(100000);
 
 	#endif
 
@@ -62,22 +58,19 @@ int main(int argc, char* argv[]) {
 			for (long k = 0; k < K; k++) {
 
 				acc += A[i * K + k] * B[k * N + j];
-
 			}
 
 			C[i * N + j] = acc;
-
 		}
 
 		#if !BENCH_CSV
 
-			MAL_LOG(MAL_LOG_INFO, "[MM] C[%ld, 0..%ld] computed, C[%ld,0]=%.1f", i, N - 1, i, C[i * N]);
-			usleep(delay_us);
+		MAL_LOG(MAL_LOG_INFO, "[MM] C[%ld, 0..%ld] computed, C[%ld,0]=%.1f", i, N - 1, i, C[i * N]);
+		usleep(delay_us);
 
 		#endif
 
 		mal_check_for(f);
-
 	}
 
 	mal_finalize();
@@ -85,7 +78,7 @@ int main(int argc, char* argv[]) {
 
 	#if !BENCH_CSV
 
-		(void)compute_seconds;
+	(void)compute_seconds;
 
 	#endif
 
@@ -93,39 +86,34 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("matmat", "malleable", "mm", mal_size(), mal_active_size(), M * N, compute_seconds, 0);
+		print_bench_csv("matmat", "malleable", "mm", mal_size(), mal_active_size(), M * N, compute_seconds, 0);
 
 		#else
 
-			int errors = 0;
+		int errors = 0;
 
-			for (long r = 0; r < M && errors == 0; r++) {
+		for (long r = 0; r < M && errors == 0; r++) {
 
-				const float expected = static_cast<float>(r + 1) * static_cast<float>(K);
+			const float expected = static_cast<float>(r + 1) * static_cast<float>(K);
 
-				for (long c = 0; c < N; c++) {
+			for (long c = 0; c < N; c++) {
 
-					if (std::fabs(C[r * N + c] - expected) > 1e-3f) {
+				if (std::fabs(C[r * N + c] - expected) > 1e-3f) {
 
-						errors = 1;
-						break;
-
-					}
-
+					errors = 1;
+					break;
 				}
-
 			}
+		}
 
-			MAL_LOG(MAL_LOG_INFO, "[RESULT] mat-mat %s (%d errors)", errors == 0 ? "OK" : "WRONG", errors);
+		MAL_LOG(MAL_LOG_INFO, "[RESULT] mat-mat %s (%d errors)", errors == 0 ? "OK" : "WRONG", errors);
 
 		#endif
 
 		std::free(C);
-
 	}
 
 	std::free(B);
 
 	return EXIT_SUCCESS;
-
 }

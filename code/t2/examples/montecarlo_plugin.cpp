@@ -1,18 +1,22 @@
-#include <algorithm>
-#include <cmath>
-#include <cstdlib>
-#include <cstdio>
-#include <mpi.h>
 #include "malleable.hpp"
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 int main(int argc, char* argv[]) {
 
-	const char* so_path  = std::getenv("POLICY_SO");
-	const char* fn_name  = std::getenv("POLICY_FN");
+	const char* so_path = std::getenv("POLICY_SO");
+	const char* fn_name = std::getenv("POLICY_FN");
 
-	if (!so_path)  so_path = "build/montecarlo_plugin_policy.so";
-	if (!fn_name)  fn_name = "montecarlo_policy";
+	if (!so_path) {
+		so_path = "build/montecarlo_plugin_policy.so";
+	}
+	if (!fn_name) {
+		fn_name = "montecarlo_policy";
+	}
 
 	mal_set_decide_resize_plugin(so_path, fn_name);
 	mal_init(MAL_RESIZE_POLICY_CUSTOM);
@@ -43,30 +47,26 @@ int main(int argc, char* argv[]) {
 		}
 
 		MAL_LOG(MAL_LOG_INFO, "[ITER] i=%ld hits_so_far=%ld active=%d",
-		        i, hits, mal_active_size());
+			i, hits, mal_active_size());
 		usleep(delay_us);
 
 		mal_check_for(f);
-
 	}
 
-	mal_finalize(); 
+	mal_finalize();
 
 	if (mal_rank() == 0) {
 
 		const double compute_seconds = MPI_Wtime() - t0;
-		const double pi_approx = 4.0 * static_cast<double>(hits)
-		                               / static_cast<double>(total_points);
+		const double pi_approx = 4.0 * static_cast<double>(hits) / static_cast<double>(total_points);
 
 		MAL_LOG(MAL_LOG_INFO,
-		        "[RESULT] montecarlo_plugin OK total_points=%ld hits=%ld "
-		        "pi~=%.6f error=%.2e t=%.2fs",
-		        total_points, hits, pi_approx,
-		        std::fabs(pi_approx - 3.14159265358979),
-		        compute_seconds);
-
+			"[RESULT] montecarlo_plugin OK total_points=%ld hits=%ld "
+			"pi~=%.6f error=%.2e t=%.2fs",
+			total_points, hits, pi_approx,
+			std::fabs(pi_approx - 3.14159265358979),
+			compute_seconds);
 	}
 
 	return EXIT_SUCCESS;
-
 }

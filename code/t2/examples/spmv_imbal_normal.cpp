@@ -1,16 +1,15 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cmath>
-#include <string>
-#include <vector>
-#include <mpi.h>
 #include "example_utils.hpp"
 #include "mtx_loader.hpp"
+#include <mpi.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <vector>
 
 static float x_value(long c) {
 
 	return 1.0f + (float)(c & 3) * 0.25f;
-
 }
 
 int main(int argc, char* argv[]) {
@@ -46,13 +45,11 @@ int main(int argc, char* argv[]) {
 
 			std::fprintf(stderr, "[spmv_imbal_normal] rank %d failed to load '%s': %s\n", rank, file, err.c_str());
 			MPI_Abort(MPI_COMM_WORLD, 1);
-
 		}
 
 	} else {
 
 		A = build_synthetic(pattern, 200000, avg_deg, 12345u, contrast, cfrac, n_spikes);
-
 	}
 
 	const long M = A.rows;
@@ -62,33 +59,30 @@ int main(int argc, char* argv[]) {
 	for (long c = 0; c < A.cols; c++) {
 
 		x[(size_t)c] = x_value(c);
-
 	}
 
 	if (rank == 0) {
 
 		#if !BENCH_CSV
-			std::printf("[SETUP] spmv_imbal_normal rows=%ld cols=%ld nnz=%ld max_row_nnz=%ld mean_row_nnz=%.1f reps=%ld world=%d\n", M, A.cols, A.nnz, A.max_row_nnz(), A.mean_row_nnz(), reps, world);
+		std::printf("[SETUP] spmv_imbal_normal rows=%ld cols=%ld nnz=%ld max_row_nnz=%ld mean_row_nnz=%.1f reps=%ld world=%d\n", M, A.cols, A.nnz, A.max_row_nnz(), A.mean_row_nnz(), reps, world);
 		#endif
-
 	}
 
 	const bool cost_part = (std::strcmp(partition, "cost") == 0);
 	auto bounds = [&](int p) -> std::pair<long, long> {
-
 		if (!cost_part) {
 
-			return { (long)((double)p * (double)M / (double)world), (long)((double)(p + 1) * (double)M / (double)world) };
-
+			return {(long)((double)p * (double)M / (double)world), (long)((double)(p + 1) * (double)M / (double)world)};
 		}
 
 		const double lo = (double)p * (double)A.nnz / (double)world;
 		const double hi = (double)(p + 1) * (double)A.nnz / (double)world;
 		long a = (long)(std::lower_bound(A.row_ptr.begin(), A.row_ptr.end(), (long)std::llround(lo)) - A.row_ptr.begin());
 		long b = (p == world - 1) ? M : (long)(std::lower_bound(A.row_ptr.begin(), A.row_ptr.end(), (long)std::llround(hi)) - A.row_ptr.begin());
-		a = std::min(a, M); b = std::min(b, M); b = std::max(a, b);
-		return { a, b };
-
+		a = std::min(a, M);
+		b = std::min(b, M);
+		b = std::max(a, b);
+		return {a, b};
 	};
 
 	const auto [r0, r1] = bounds(rank);
@@ -109,13 +103,10 @@ int main(int argc, char* argv[]) {
 			for (long j = b; j < e; j++) {
 
 				acc += (double)A.vals[(size_t)j] * (double)x[(size_t)A.col_idx[(size_t)j]];
-
 			}
-
 		}
 
 		y_local[(size_t)(r - r0)] = (float)(acc / (double)reps);
-
 	}
 
 	std::vector<int> counts((size_t)world, 0);
@@ -126,7 +117,6 @@ int main(int argc, char* argv[]) {
 		const auto [pr0, pr1] = bounds(p);
 		counts[(size_t)p] = (int)(pr1 - pr0);
 		displs[(size_t)p] = (int)pr0;
-
 	}
 
 	std::vector<float> y;
@@ -134,7 +124,6 @@ int main(int argc, char* argv[]) {
 	if (rank == 0) {
 
 		y.assign((size_t)M, 0.0f);
-
 	}
 
 	MPI_Gatherv(y_local.data(), (int)local_rows, MPI_FLOAT, rank == 0 ? y.data() : nullptr, counts.data(), displs.data(), MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -146,39 +135,36 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("spmv_imbal", "normal", "spmv", world, world, M, t1 - t0, 0);
+		print_bench_csv("spmv_imbal", "normal", "spmv", world, world, M, t1 - t0, 0);
 
 		#else
 
-			(void)t0; (void)t1;
-			int errors = 0;
-			float max_rel = 0.0f;
+		(void)t0;
+		(void)t1;
+		int errors = 0;
+		float max_rel = 0.0f;
 
-			for (long r = 0; r < M; r++) {
+		for (long r = 0; r < M; r++) {
 
-				double expected = 0.0;
+			double expected = 0.0;
 
-				for (long j = A.row_ptr[(size_t)r]; j < A.row_ptr[(size_t)r + 1]; j++) {
+			for (long j = A.row_ptr[(size_t)r]; j < A.row_ptr[(size_t)r + 1]; j++) {
 
-					expected += (double)A.vals[(size_t)j] * (double)x_value(A.col_idx[(size_t)j]);
-
-				}
-
-				const double denom = std::max(1.0, std::fabs(expected));
-				const double rel = std::fabs((double)y[(size_t)r] - expected) / denom;
-				max_rel = std::max(max_rel, (float)rel);
-
-				if (rel > 1e-4) { errors++; }
-
+				expected += (double)A.vals[(size_t)j] * (double)x_value(A.col_idx[(size_t)j]);
 			}
 
-			std::printf("[RESULT] spmv_imbal_normal %s (rows=%ld nnz=%ld world=%d max_rel=%.2e errors=%d)\n", errors == 0 ? "OK" : "WRONG", M, A.nnz, world, max_rel, errors);
+			const double denom = std::max(1.0, std::fabs(expected));
+			const double rel = std::fabs((double)y[(size_t)r] - expected) / denom;
+			max_rel = std::max(max_rel, (float)rel);
+
+			if (rel > 1e-4) { errors++; }
+		}
+
+		std::printf("[RESULT] spmv_imbal_normal %s (rows=%ld nnz=%ld world=%d max_rel=%.2e errors=%d)\n", errors == 0 ? "OK" : "WRONG", M, A.nnz, world, max_rel, errors);
 
 		#endif
-
 	}
 
 	MPI_Finalize();
 	return EXIT_SUCCESS;
-
 }

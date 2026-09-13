@@ -1,10 +1,10 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
-#include <cmath>
-#include <vector>
-#include <mpi.h>
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
 
 int main(int argc, char* argv[]) {
 
@@ -26,13 +26,11 @@ int main(int argc, char* argv[]) {
 		if (world_rank == 0) {
 
 			std::fprintf(stderr, "[ERROR] n (%ld) must be divisible by world_size (%d)\n", total_n, world_size);
-
 		}
 
 		MPI_Finalize();
 
 		return EXIT_FAILURE;
-
 	}
 
 	const long local_count = total_n / world_size;
@@ -51,9 +49,7 @@ int main(int argc, char* argv[]) {
 
 			A[k] = static_cast<float>(k + 1);
 			B[k] = static_cast<float>(total_n - k);
-
 		}
-
 	}
 
 	std::vector<float> local_a(static_cast<size_t>(local_count));
@@ -68,7 +64,7 @@ int main(int argc, char* argv[]) {
 
 	#if !BENCH_CSV
 
-		const useconds_t delay_us = example_delay_us(200000);
+	const useconds_t delay_us = example_delay_us(200000);
 
 	#endif
 
@@ -79,17 +75,15 @@ int main(int argc, char* argv[]) {
 		for (int iter = 0; iter < 1000; iter++) {
 
 			acc += std::sin(local_a[local_i]) * std::cos(local_b[local_i]) + std::sqrt(local_a[local_i] * local_b[local_i]);
-
 		}
 
 		local_c[local_i] = acc;
 
 		#if !BENCH_CSV
 
-			usleep(delay_us);
+		usleep(delay_us);
 
 		#endif
-
 	}
 
 	MPI_Gather(local_c.data(), static_cast<int>(local_count), MPI_FLOAT, C, static_cast<int>(local_count), MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -103,44 +97,39 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("vector", "normal", use_collapse ? "collapse" : "flat", world_size, world_size, total_n, elapsed, errors);
+		print_bench_csv("vector", "normal", use_collapse ? "collapse" : "flat", world_size, world_size, total_n, elapsed, errors);
 
 		#else
 
-			for (long k = 0; k < total_n; k++) {
+		for (long k = 0; k < total_n; k++) {
 
-				const float expected = (std::sin(A[k]) * std::cos(B[k]) + std::sqrt(A[k] * B[k])) * 1000.0f;
+			const float expected = (std::sin(A[k]) * std::cos(B[k]) + std::sqrt(A[k] * B[k])) * 1000.0f;
 
-				if (std::abs(C[k] - expected) > 1e-3f) {
+			if (std::abs(C[k] - expected) > 1e-3f) {
 
-					errors++;
-
-				}
-
+				errors++;
 			}
+		}
 
-			if (errors == 0) {
+		if (errors == 0) {
 
-				std::printf("[RESULT] vector OK\n");
+			std::printf("[RESULT] vector OK\n");
 
-			} else {
+		} else {
 
-				std::printf("[RESULT] vector WRONG\n");
+			std::printf("[RESULT] vector WRONG\n");
+		}
 
-			}
-
-			std::printf("[TIME] vector normal mpi mode=%s np=%d seconds=%.6f\n", use_collapse ? "collapse" : "flat", world_size, elapsed);
+		std::printf("[TIME] vector normal mpi mode=%s np=%d seconds=%.6f\n", use_collapse ? "collapse" : "flat", world_size, elapsed);
 
 		#endif
 
 		std::free(A);
 		std::free(B);
 		std::free(C);
-
 	}
 
 	MPI_Finalize();
 
 	return EXIT_SUCCESS;
-
 }

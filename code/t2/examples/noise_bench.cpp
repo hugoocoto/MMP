@@ -1,20 +1,19 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
-#include <cmath>
-#include <chrono>
-#include <vector>
-#include <mpi.h>
 #include "malleable.hpp"
 #include "example_utils.hpp"
 #include "thread_metrics.hpp"
+#include <mpi.h>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
 
 static bool rank_in_list(int r, const char* list) {
 
 	if (!list || !*list) {
 
 		return false;
-
 	}
 
 	const char* p = list;
@@ -27,13 +26,11 @@ static bool rank_in_list(int r, const char* list) {
 		if (end == p) {
 
 			break;
-
 		}
 
 		if ((long)r == v) {
 
 			return true;
-
 		}
 
 		p = end;
@@ -41,13 +38,10 @@ static bool rank_in_list(int r, const char* list) {
 		while (*p == ',' || *p == ' ') {
 
 			p++;
-
 		}
-
 	}
 
 	return false;
-
 }
 
 static void busy_wait_us(double us) {
@@ -55,7 +49,6 @@ static void busy_wait_us(double us) {
 	if (us <= 0.0) {
 
 		return;
-
 	}
 
 	const auto t0 = std::chrono::steady_clock::now();
@@ -70,13 +63,10 @@ static void busy_wait_us(double us) {
 		if (el >= us) {
 
 			break;
-
 		}
-
 	}
 
 	(void)s;
-
 }
 
 static float kernel(long i, long work) {
@@ -86,11 +76,9 @@ static float kernel(long i, long work) {
 	for (long k = 0; k < work; k++) {
 
 		acc += std::sin((float)(i + k)) * std::cos((float)(i - k)) + std::sqrt((float)((i + 1) * (k + 1)));
-
 	}
 
 	return acc;
-
 }
 
 static float kernel_mem(long i, long work, const float* buf, size_t nbuf) {
@@ -102,11 +90,9 @@ static float kernel_mem(long i, long work, const float* buf, size_t nbuf) {
 
 		x = x * 6364136223846793005ULL + 1442695040888963407ULL;
 		acc += buf[(size_t)((x >> 33) % nbuf)];
-
 	}
 
 	return acc;
-
 }
 
 static float kernel_imbal(long i, long work, long n) {
@@ -114,7 +100,6 @@ static float kernel_imbal(long i, long work, long n) {
 	const long w = work / 8 + (work * 2 * i) / ((n > 0) ? n : 1);
 
 	return kernel(i, (w > 1) ? w : 1);
-
 }
 
 static float kernel_dispatch(long i, long work, int kind, long n, const float* buf, size_t nbuf) {
@@ -122,17 +107,14 @@ static float kernel_dispatch(long i, long work, int kind, long n, const float* b
 	if (kind == 1) {
 
 		return kernel_mem(i, work, buf, nbuf);
-
 	}
 
 	if (kind == 2) {
 
 		return kernel_imbal(i, work, n);
-
 	}
 
 	return kernel(i, work);
-
 }
 
 int main(int argc, char* argv[]) {
@@ -154,7 +136,6 @@ int main(int argc, char* argv[]) {
 	for (size_t k = 0; k < nbuf; k++) {
 
 		buf[k] = (float)((k * 2654435761ULL) % 1000) * 0.001f;
-
 	}
 
 	float* C = (mal_rank() == 0) ? static_cast<float*>(std::calloc((size_t)std::max(1L, N), sizeof(float))) : nullptr;
@@ -163,10 +144,9 @@ int main(int argc, char* argv[]) {
 
 		#if !BENCH_CSV
 
-			MAL_LOG(MAL_LOG_INFO, "[SETUP] noise_bench n=%ld work=%ld noise_us=%ld noise_ranks=%s", N, work, noise_us, noise_ranks[0] ? noise_ranks : "(none)");
+		MAL_LOG(MAL_LOG_INFO, "[SETUP] noise_bench n=%ld work=%ld noise_us=%ld noise_ranks=%s", N, work, noise_us, noise_ranks[0] ? noise_ranks : "(none)");
 
 		#endif
-
 	}
 
 	papi_init();
@@ -196,7 +176,6 @@ int main(int argc, char* argv[]) {
 		if (noisy) {
 
 			busy_wait_us((double)noise_us);
-
 		}
 
 		const double t_a = tm_mono_s();
@@ -208,7 +187,6 @@ int main(int argc, char* argv[]) {
 		acc_check += t_b - t_a;
 		t_prev = t_b;
 		iters_done++;
-
 	}
 
 	const double wall_loop = MPI_Wtime() - t0;
@@ -240,13 +218,11 @@ int main(int argc, char* argv[]) {
 			if (tids_after[k].tid == self_tid) {
 
 				continue;
-
 			}
 
 			if (tids_after[k].tid != lib_wtid && tids_after[k].comm != "mal_worker") {
 
 				continue;
-
 			}
 
 			double before_cpu = 0.0, before_runq = 0.0;
@@ -257,31 +233,25 @@ int main(int argc, char* argv[]) {
 
 					before_cpu = (tids_before[j].cpu_s > 0.0) ? tids_before[j].cpu_s : 0.0;
 					before_runq = (tids_before[j].runq_s > 0.0) ? tids_before[j].runq_s : 0.0;
-
 				}
-
 			}
 
 			if (worker_cpu < 0.0 && tids_after[k].cpu_s >= 0.0) {
 
 				worker_cpu = tids_after[k].cpu_s - before_cpu;
-
 			}
 
 			if (worker_runq < 0.0 && tids_after[k].runq_s >= 0.0) {
 
 				worker_runq = tids_after[k].runq_s - before_runq;
-
 			}
 
 			if (worker_core < 0) {
 
 				worker_core = (tids_after[k].pinned_cpu >= 0) ? tids_after[k].pinned_cpu : tids_after[k].last_cpu;
-
 			}
 
 			break;
-
 		}
 
 		const double c_main = tm_delta(snap_loop.compute_cpu_s, snap_start.compute_cpu_s);
@@ -301,11 +271,8 @@ int main(int argc, char* argv[]) {
 				if (std::fabs(C[r] - expected) / denom > 1e-3f) {
 
 					errors++;
-
 				}
-
 			}
-
 		}
 
 		const long long p_cyc = papi_ok ? papi_vals[0] : -1;
@@ -317,12 +284,11 @@ int main(int argc, char* argv[]) {
 
 		std::printf("TM,%d,%d,%d,%d,%d,%d,%ld,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%ld,%ld,%lld,%lld,%lld,%lld,%lld,%d,%lld,%lld,%lld,%lld,%.4f,%.4f,%d\n", mal_rank(), noisy ? 1 : 0, compute_core, worker_core, (int)tids_after.size(), tm_schedstats_enabled() ? 1 : 0, iters_done, wall_loop, compute_seconds, c_main, p_cpu, other_cpu, acc_kernel, acc_check, tm_delta(snap_loop.runq_s, snap_start.runq_s), worker_cpu, worker_runq, tm_delta_l(snap_loop.nvcsw, snap_start.nvcsw), tm_delta_l(snap_loop.nivcsw, snap_start.nivcsw), tm_delta_ll(snap_loop.cycles, snap_start.cycles), tm_delta_ll(snap_loop.insns, snap_start.insns), tm_delta_ll(snap_loop.llc_ref, snap_start.llc_ref), tm_delta_ll(snap_loop.llc_miss, snap_start.llc_miss), tm_delta_ll(snap_loop.ref_cycles, snap_start.ref_cycles), papi_ok ? 1 : 0, p_cyc, p_ins, p_l3, p_ref, p_ipc, p_memb, errors);
 		std::fflush(stdout);
-
 	}
 
 	#if !BENCH_CSV
 
-		(void)compute_seconds;
+	(void)compute_seconds;
 
 	#endif
 
@@ -330,53 +296,46 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("noise_bench", "malleable", "balanced", mal_size(), mal_active_size(), N, compute_seconds, (errors > 0) ? errors : 0);
+		print_bench_csv("noise_bench", "malleable", "balanced", mal_size(), mal_active_size(), N, compute_seconds, (errors > 0) ? errors : 0);
 
 		#else
 
-			int errors_full = 0;
-			float max_rel = 0.0f;
+		int errors_full = 0;
+		float max_rel = 0.0f;
 
-			for (long r = 0; r < N; r++) {
+		for (long r = 0; r < N; r++) {
 
-				const float expected = kernel_dispatch(r, work, kernel_kind, N, buf, nbuf);
-				const float denom = std::max(1.0f, std::fabs(expected));
-				const float rel = std::fabs(C[r] - expected) / denom;
+			const float expected = kernel_dispatch(r, work, kernel_kind, N, buf, nbuf);
+			const float denom = std::max(1.0f, std::fabs(expected));
+			const float rel = std::fabs(C[r] - expected) / denom;
 
-				if (rel > max_rel) {
+			if (rel > max_rel) {
 
-					max_rel = rel;
-
-				}
-
-				if (rel > 1e-3f) {
-
-					errors++;
-
-				}
-
+				max_rel = rel;
 			}
 
-			MAL_LOG(MAL_LOG_INFO, "[RESULT] noise_bench %s (n=%ld active=%d noisy=%s time=%.4f max_rel=%.2e errors=%d)", errors == 0 ? "OK" : "WRONG", N, mal_active_size(), noise_ranks[0] ? noise_ranks : "(none)", compute_seconds, max_rel, errors);
+			if (rel > 1e-3f) {
+
+				errors++;
+			}
+		}
+
+		MAL_LOG(MAL_LOG_INFO, "[RESULT] noise_bench %s (n=%ld active=%d noisy=%s time=%.4f max_rel=%.2e errors=%d)", errors == 0 ? "OK" : "WRONG", N, mal_active_size(), noise_ranks[0] ? noise_ranks : "(none)", compute_seconds, max_rel, errors);
 
 		#endif
-
 	}
 
 	if (C) {
 
 		std::free(C);
-
 	}
 
 	if (buf) {
 
 		std::free(buf);
-
 	}
 
 	papi_finalize();
 
 	return EXIT_SUCCESS;
-
 }

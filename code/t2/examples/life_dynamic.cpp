@@ -1,74 +1,65 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
-#include <cstdint>
-#include <cmath>
-#include <algorithm>
-#include <vector>
-#include <unistd.h>
-#include <mpi.h>
 #include "malleable.hpp"
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
+#include <vector>
 
 namespace {
 
-	inline uint8_t gol_alive_next(uint8_t self, int neigh) {
+inline uint8_t gol_alive_next(uint8_t self, int neigh) {
 
-		if (self) {
+	if (self) {
 
-			return (neigh == 2 || neigh == 3) ? 1 : 0;
-
-		}
-
-		return (neigh == 3) ? 1 : 0;
-
+		return (neigh == 2 || neigh == 3) ? 1 : 0;
 	}
 
-	void gol_step(const uint8_t* in, uint8_t* out, int G) {
+	return (neigh == 3) ? 1 : 0;
+}
 
-		for (int r = 0; r < G; r++) {
+void gol_step(const uint8_t* in, uint8_t* out, int G) {
 
-			const int rm = (r == 0) ? G - 1 : r - 1;
-			const int rp = (r == G - 1) ? 0 : r + 1;
+	for (int r = 0; r < G; r++) {
 
-			for (int c = 0; c < G; c++) {
+		const int rm = (r == 0) ? G - 1 : r - 1;
+		const int rp = (r == G - 1) ? 0 : r + 1;
 
-				const int cm = (c == 0) ? G - 1 : c - 1;
-				const int cp = (c == G - 1) ? 0 : c + 1;
-				const int n = in[rm * G + cm] + in[rm * G + c] + in[rm * G + cp] + in[r * G + cm] + in[r * G + cp] + in[rp * G + cm] + in[rp * G + c] + in[rp * G + cp];
-				out[r * G + c] = gol_alive_next(in[r * G + c], n);
+		for (int c = 0; c < G; c++) {
 
-			}
-
+			const int cm = (c == 0) ? G - 1 : c - 1;
+			const int cp = (c == G - 1) ? 0 : c + 1;
+			const int n = in[rm * G + cm] + in[rm * G + c] + in[rm * G + cp] + in[r * G + cm] + in[r * G + cp] + in[rp * G + cm] + in[rp * G + c] + in[rp * G + cp];
+			out[r * G + c] = gol_alive_next(in[r * G + c], n);
 		}
+	}
+}
 
+long popcount_grid(const uint8_t* g, long n) {
+
+	long s = 0;
+
+	for (long k = 0; k < n; k++) {
+
+		s += g[k];
 	}
 
-	long popcount_grid(const uint8_t* g, long n) {
+	return s;
+}
 
-		long s = 0;
+void init_grid_random(uint8_t* g, int G, unsigned int seed) {
 
-		for (long k = 0; k < n; k++) {
+	unsigned int s = seed;
 
-			s += g[k];
+	for (int k = 0; k < G * G; k++) {
 
-		}
-
-		return s;
-
+		g[k] = (rand_r(&s) % 100 < 30) ? 1 : 0;
 	}
-
-	void init_grid_random(uint8_t* g, int G, unsigned int seed) {
-
-		unsigned int s = seed;
-
-		for (int k = 0; k < G * G; k++) {
-
-			g[k] = (rand_r(&s) % 100 < 30) ? 1 : 0;
-
-		}
-
-	}
+}
 
 }
 
@@ -92,7 +83,6 @@ int main(int argc, char* argv[]) {
 	if (mal_rank() == 0) {
 
 		data = static_cast<float*>(std::calloc(static_cast<size_t>(N), sizeof(float)));
-
 	}
 
 	std::vector<uint8_t> grid_a(static_cast<size_t>(G * G), 0);
@@ -111,11 +101,9 @@ int main(int argc, char* argv[]) {
 
 	unsigned int jitter_state = (unsigned int)(mal_rank() * 2246822519u + 1u);
 	auto jittered = [&](long base) -> long {
-
 		if (jitter_pct <= 0 || base <= 0) {
 
 			return base;
-
 		}
 
 		const double r = (double)rand_r(&jitter_state) / (double)RAND_MAX * 2.0 - 1.0;
@@ -125,24 +113,21 @@ int main(int argc, char* argv[]) {
 		if (v < 0.0) {
 
 			v = 0.0;
-
 		}
 
 		return (long)v;
-
 	};
 
 	if (mal_rank() == 0) {
 
 		MAL_LOG(MAL_LOG_INFO, "[EXPECTED] mode=life_dynamic period=%.1fs universe=%d grid=%ldx%ld", period_sec, universe, G, G);
-
 	}
 
 	for (; i < lim; i++) {
 
 		const double elapsed = MPI_Wtime() - t_start;
-		constexpr double TWO_PI = 6.28318530717958647692;
-		const double phase_rad = TWO_PI * elapsed / period_sec;
+		constexpr double kTwoPi = 6.28318530717958647692;
+		const double phase_rad = kTwoPi * elapsed / period_sec;
 		const double amp = std::clamp(amp_pct, 0.0, 100.0) / 100.0;
 		const double slow_fraction = 0.5 + 0.5 * amp * std::sin(phase_rad);
 		int slow_thresh = (int)std::round((1.0 - slow_fraction) * (double)universe);
@@ -150,20 +135,17 @@ int main(int argc, char* argv[]) {
 		if (slow_thresh < 1) {
 
 			slow_thresh = 1;
-
 		}
 
 		if (slow_thresh > universe) {
 
 			slow_thresh = universe;
-
 		}
 
 		if (mal_rank() == 0 && slow_thresh != last_logged_slow_thresh) {
 
 			MAL_LOG(MAL_LOG_INFO, "[EXPECTED] event=phase_change t_rel=%.4f slow_fraction=%.2f slow_thresh=%d active=%d", elapsed, slow_fraction, slow_thresh, mal_active_size());
 			last_logged_slow_thresh = slow_thresh;
-
 		}
 
 		const long steps_target = (mal_rank() >= slow_thresh) ? slow_steps : fast_steps;
@@ -173,7 +155,6 @@ int main(int argc, char* argv[]) {
 
 			gol_step(grid_a.data(), grid_b.data(), (int)G);
 			std::swap(grid_a, grid_b);
-
 		}
 
 		const long alive = popcount_grid(grid_a.data(), G * G);
@@ -185,13 +166,11 @@ int main(int argc, char* argv[]) {
 
 			MAL_LOG(MAL_LOG_INFO, "[DEMO] *** Resize: %d -> %d ranks (t=%.2fs) ***", prev_size, cur_active, elapsed);
 			prev_size = cur_active;
-
 		}
 
 		MAL_LOG(MAL_LOG_INFO, "[DEMO] rank=%d iter=%ld/%ld alive=%ld steps=%ld (active=%d t=%.2fs)", mal_rank(), i, N, alive, steps, cur_active, elapsed);
 
 		mal_check_for(f);
-
 	}
 
 	mal_finalize();
@@ -203,14 +182,11 @@ int main(int argc, char* argv[]) {
 		for (long j = 0; j < N; j++) {
 
 			total_alive += (long)data[j];
-
 		}
 
 		MAL_LOG(MAL_LOG_INFO, "[RESULT] life_dynamic OK (sum_alive=%ld N=%ld)", total_alive, N);
 		std::free(data);
-
 	}
 
 	return EXIT_SUCCESS;
-
 }

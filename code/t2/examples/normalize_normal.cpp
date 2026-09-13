@@ -1,9 +1,9 @@
-#include <cstdlib>
-#include <cstdio>
-#include <cmath>
-#include <vector>
-#include <mpi.h>
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
 
 int main(int argc, char* argv[]) {
 
@@ -27,7 +27,6 @@ int main(int argc, char* argv[]) {
 		counts[(size_t)r] = (int)c;
 		displs[(size_t)r] = (int)off;
 		off += c;
-
 	}
 
 	const long local_count = counts[(size_t)rank];
@@ -40,9 +39,7 @@ int main(int argc, char* argv[]) {
 		for (long g = 0; g < N; g++) {
 
 			x[g] = 1.0 + (double)(g % 10);
-
 		}
-
 	}
 
 	std::vector<double> lx((size_t)std::max(1L, local_count));
@@ -58,7 +55,6 @@ int main(int argc, char* argv[]) {
 	for (long i = 0; i < local_count; i++) {
 
 		local_ss += lx[(size_t)i] * lx[(size_t)i];
-
 	}
 
 	double sum_sq = 0.0;
@@ -68,7 +64,6 @@ int main(int argc, char* argv[]) {
 	for (long i = 0; i < local_count; i++) {
 
 		ly[(size_t)i] = (norm > 0.0) ? lx[(size_t)i] / norm : 0.0;
-
 	}
 
 	MPI_Gatherv(ly.data(), (int)local_count, MPI_DOUBLE, y, counts.data(), displs.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -79,43 +74,39 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("normalize", "normal", "twoloop", size, size, N, elapsed, 0);
+		print_bench_csv("normalize", "normal", "twoloop", size, size, N, elapsed, 0);
 
 		#else
 
-			(void)elapsed;
+		(void)elapsed;
 
-			int errors = 0;
-			double out_sumsq = 0.0;
+		int errors = 0;
+		double out_sumsq = 0.0;
 
-			for (long g = 0; g < N; g++) {
+		for (long g = 0; g < N; g++) {
 
-				const double expected = (norm > 0.0) ? x[g] / norm : 0.0;
+			const double expected = (norm > 0.0) ? x[g] / norm : 0.0;
 
-				if (std::fabs(y[g] - expected) > 1e-9 * std::fabs(expected) + 1e-12) {
+			if (std::fabs(y[g] - expected) > 1e-9 * std::fabs(expected) + 1e-12) {
 
-					errors++;
-
-				}
-
-				out_sumsq += y[g] * y[g];
-
+				errors++;
 			}
 
-			const double unit_drift = (N > 0) ? std::fabs(std::sqrt(out_sumsq) - 1.0) : 0.0;
-			const double unit_tol = 1e-12 * (double)N + 1e-9;
+			out_sumsq += y[g] * y[g];
+		}
 
-			std::printf("[RESULT] normalize %s (n=%ld active=%d norm=%.6f errors=%d unit_drift=%.2e)\n", (errors == 0 && unit_drift < unit_tol) ? "OK" : "WRONG", N, size, norm, errors, unit_drift);
+		const double unit_drift = (N > 0) ? std::fabs(std::sqrt(out_sumsq) - 1.0) : 0.0;
+		const double unit_tol = 1e-12 * (double)N + 1e-9;
+
+		std::printf("[RESULT] normalize %s (n=%ld active=%d norm=%.6f errors=%d unit_drift=%.2e)\n", (errors == 0 && unit_drift < unit_tol) ? "OK" : "WRONG", N, size, norm, errors, unit_drift);
 
 		#endif
 
 		std::free(x);
 		std::free(y);
-
 	}
 
 	MPI_Finalize();
 
 	return EXIT_SUCCESS;
-
 }

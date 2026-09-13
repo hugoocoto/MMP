@@ -1,9 +1,9 @@
-#include <cstdlib>
-#include <cstring>
-#include <cmath>
-#include <mpi.h>
 #include "malleable.hpp"
 #include "example_utils.hpp"
+#include <mpi.h>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
 
 int main(int argc, char* argv[]) {
 
@@ -29,9 +29,7 @@ int main(int argc, char* argv[]) {
 
 			A[k] = static_cast<float>(k + 1);
 			B[k] = static_cast<float>(total_n - k);
-
 		}
-
 	}
 
 	if (use_collapse) {
@@ -53,7 +51,7 @@ int main(int argc, char* argv[]) {
 
 		#if !BENCH_CSV
 
-			const useconds_t delay_us = example_delay_us(200000);
+		const useconds_t delay_us = example_delay_us(200000);
 
 		#endif
 
@@ -67,22 +65,19 @@ int main(int argc, char* argv[]) {
 				for (int iter = 0; iter < 1000; iter++) {
 
 					acc += std::sin(A[idx]) * std::cos(B[idx]) + std::sqrt(A[idx] * B[idx]);
-
 				}
 
 				C[idx] = acc;
 
 				#if !BENCH_CSV
 
-					MAL_LOG(MAL_LOG_INFO, "[ITER] C[%ld] = %.6f", idx, C[idx]);
-					usleep(delay_us);
+				MAL_LOG(MAL_LOG_INFO, "[ITER] C[%ld] = %.6f", idx, C[idx]);
+				usleep(delay_us);
 
 				#endif
 
 				mal_check_for(nd);
-
 			}
-
 		}
 
 		mal_finalize();
@@ -101,7 +96,7 @@ int main(int argc, char* argv[]) {
 
 		#if !BENCH_CSV
 
-			const useconds_t delay_us = example_delay_us(200000);
+		const useconds_t delay_us = example_delay_us(200000);
 
 		#endif
 
@@ -112,30 +107,27 @@ int main(int argc, char* argv[]) {
 			for (int iter = 0; iter < 1000; iter++) {
 
 				acc += std::sin(A[i]) * std::cos(B[i]) + std::sqrt(A[i] * B[i]);
-
 			}
 
 			C[i] = acc;
 
 			#if !BENCH_CSV
 
-				MAL_LOG(MAL_LOG_INFO, "[ITER] C[%ld] = %.6f", i, C[i]);
-				usleep(delay_us);
+			MAL_LOG(MAL_LOG_INFO, "[ITER] C[%ld] = %.6f", i, C[i]);
+			usleep(delay_us);
 
 			#endif
 
 			mal_check_for(f);
-
 		}
 
 		mal_finalize();
 		compute_seconds = MPI_Wtime() - t0;
-
 	}
 
 	#if !BENCH_CSV
 
-		(void)compute_seconds;
+	(void)compute_seconds;
 
 	#endif
 
@@ -143,43 +135,38 @@ int main(int argc, char* argv[]) {
 
 		#if BENCH_CSV
 
-			print_bench_csv("vector", "malleable", use_collapse ? "collapse" : "flat", mal_size(), mal_active_size(), total_n, compute_seconds, 0);
+		print_bench_csv("vector", "malleable", use_collapse ? "collapse" : "flat", mal_size(), mal_active_size(), total_n, compute_seconds, 0);
 
 		#else
 
-			int errors = 0;
+		int errors = 0;
 
-			for (long k = 0; k < total_n; k++) {
+		for (long k = 0; k < total_n; k++) {
 
-				const float ak = static_cast<float>(k + 1);
-				const float bk = static_cast<float>(total_n - k);
-				const float expected = (std::sin(ak) * std::cos(bk) + std::sqrt(ak * bk)) * 1000.0f;
+			const float ak = static_cast<float>(k + 1);
+			const float bk = static_cast<float>(total_n - k);
+			const float expected = (std::sin(ak) * std::cos(bk) + std::sqrt(ak * bk)) * 1000.0f;
 
-				if (std::fabs(C[k] - expected) > std::fabs(expected) * 1e-3f + 1e-3f) {
+			if (std::fabs(C[k] - expected) > std::fabs(expected) * 1e-3f + 1e-3f) {
 
-					errors++;
-					break;
-
-				}
-
+				errors++;
+				break;
 			}
+		}
 
-			if (errors == 0) {
+		if (errors == 0) {
 
-				MAL_LOG(MAL_LOG_INFO, "[RESULT] vector OK");
+			MAL_LOG(MAL_LOG_INFO, "[RESULT] vector OK");
 
-			} else {
+		} else {
 
-				MAL_LOG(MAL_LOG_ERROR, "[RESULT] vector WRONG");
-
-			}
+			MAL_LOG(MAL_LOG_ERROR, "[RESULT] vector WRONG");
+		}
 
 		#endif
 
 		std::free(C);
-
 	}
 
 	return EXIT_SUCCESS;
-
 }

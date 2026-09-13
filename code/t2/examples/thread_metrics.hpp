@@ -12,22 +12,22 @@
 #endif
 
 #include <cstdio>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <string>
 #include <vector>
 
 #if defined(__linux__)
 
-	#include <string.h>
-	#include <unistd.h>
-	#include <sched.h>
-	#include <sys/resource.h>
-	#include <sys/syscall.h>
+	#include <asm/unistd.h>
 	#include <dirent.h>
 	#include <linux/perf_event.h>
-	#include <asm/unistd.h>
+	#include <sched.h>
+	#include <string.h>
+	#include <sys/resource.h>
+	#include <sys/syscall.h>
+	#include <unistd.h>
 
 #endif
 
@@ -39,7 +39,6 @@ struct TidInfo {
 	double runq_s;
 	int last_cpu;
 	int pinned_cpu;
-
 };
 
 struct ThreadSnap {
@@ -54,7 +53,6 @@ struct ThreadSnap {
 	long long llc_ref;
 	long long llc_miss;
 	long long ref_cycles;
-
 };
 
 struct PerfCounters {
@@ -64,7 +62,6 @@ struct PerfCounters {
 	int fd_llc_ref;
 	int fd_llc_miss;
 	int fd_ref_cyc;
-
 };
 
 static inline double tm_clock_s(clockid_t id) {
@@ -74,29 +71,24 @@ static inline double tm_clock_s(clockid_t id) {
 	if (clock_gettime(id, &ts) != 0) {
 
 		return -1.0;
-
 	}
 
 	return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
-
 }
 
 static inline double tm_mono_s() {
 
 	return tm_clock_s(CLOCK_MONOTONIC);
-
 }
 
 static inline double tm_thread_cpu_s() {
 
 	return tm_clock_s(CLOCK_THREAD_CPUTIME_ID);
-
 }
 
 static inline double tm_proc_cpu_s() {
 
 	return tm_clock_s(CLOCK_PROCESS_CPUTIME_ID);
-
 }
 
 static inline long tm_self_tid() {
@@ -110,7 +102,6 @@ static inline long tm_self_tid() {
 	return -1;
 
 #endif
-
 }
 
 static inline int tm_current_cpu() {
@@ -124,7 +115,6 @@ static inline int tm_current_cpu() {
 	return -1;
 
 #endif
-
 }
 
 static inline double tm_read_runq_s(const char* path) {
@@ -136,7 +126,6 @@ static inline double tm_read_runq_s(const char* path) {
 	if (!f) {
 
 		return -1.0;
-
 	}
 
 	unsigned long long on_cpu = 0, run_delay = 0;
@@ -147,7 +136,6 @@ static inline double tm_read_runq_s(const char* path) {
 	if (n < 2) {
 
 		return -1.0;
-
 	}
 
 	return (double)run_delay * 1e-9;
@@ -159,13 +147,11 @@ static inline double tm_read_runq_s(const char* path) {
 	return -1.0;
 
 #endif
-
 }
 
 static inline double tm_thread_runq_s() {
 
 	return tm_read_runq_s("/proc/thread-self/schedstat");
-
 }
 
 static inline bool tm_schedstats_enabled() {
@@ -177,7 +163,6 @@ static inline bool tm_schedstats_enabled() {
 	if (a < 0.0) {
 
 		return false;
-
 	}
 
 	FILE* f = std::fopen("/proc/sys/kernel/sched_schedstats", "r");
@@ -191,9 +176,7 @@ static inline bool tm_schedstats_enabled() {
 		if (n == 1 && v == 1) {
 
 			return true;
-
 		}
-
 	}
 
 	volatile double spin = 0.0;
@@ -201,7 +184,6 @@ static inline bool tm_schedstats_enabled() {
 	for (long k = 0; k < 200000; k++) {
 
 		spin += (double)k;
-
 	}
 
 	(void)spin;
@@ -215,7 +197,6 @@ static inline bool tm_schedstats_enabled() {
 	return false;
 
 #endif
-
 }
 
 static inline void tm_rusage_thread(long& nvcsw, long& nivcsw) {
@@ -230,14 +211,12 @@ static inline void tm_rusage_thread(long& nvcsw, long& nivcsw) {
 		nivcsw = ru.ru_nivcsw;
 
 		return;
-
 	}
 
 #endif
 
 	nvcsw = -1;
 	nivcsw = -1;
-
 }
 
 #if defined(__linux__)
@@ -245,7 +224,6 @@ static inline void tm_rusage_thread(long& nvcsw, long& nivcsw) {
 static inline long tm_gettid() {
 
 	return (long)syscall(SYS_gettid);
-
 }
 
 static inline int tm_perf_open_one(unsigned int type, unsigned long long config) {
@@ -262,7 +240,6 @@ static inline int tm_perf_open_one(unsigned int type, unsigned long long config)
 	attr.read_format = PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING;
 
 	return (int)syscall(__NR_perf_event_open, &attr, 0, -1, -1, 0);
-
 }
 
 static inline bool tm_parse_stat(const char* path, double& cpu_s, int& last_cpu) {
@@ -272,7 +249,6 @@ static inline bool tm_parse_stat(const char* path, double& cpu_s, int& last_cpu)
 	if (!f) {
 
 		return false;
-
 	}
 
 	char buf[4096];
@@ -282,7 +258,6 @@ static inline bool tm_parse_stat(const char* path, double& cpu_s, int& last_cpu)
 	if (got == 0) {
 
 		return false;
-
 	}
 
 	buf[got] = '\0';
@@ -292,7 +267,6 @@ static inline bool tm_parse_stat(const char* path, double& cpu_s, int& last_cpu)
 	if (!rp) {
 
 		return false;
-
 	}
 
 	std::vector<std::string> tok;
@@ -303,13 +277,11 @@ static inline bool tm_parse_stat(const char* path, double& cpu_s, int& last_cpu)
 
 		tok.push_back(p);
 		p = ::strtok_r(nullptr, " \t\n", &save);
-
 	}
 
 	if (tok.size() < 37) {
 
 		return false;
-
 	}
 
 	const double hz = (double)sysconf(_SC_CLK_TCK);
@@ -319,7 +291,6 @@ static inline bool tm_parse_stat(const char* path, double& cpu_s, int& last_cpu)
 	last_cpu = (int)std::strtol(tok[36].c_str(), nullptr, 10);
 
 	return true;
-
 }
 
 #endif
@@ -333,7 +304,6 @@ static inline int tm_pinned_cpu(const char* status_path) {
 	if (!f) {
 
 		return -1;
-
 	}
 
 	char line[512];
@@ -344,7 +314,6 @@ static inline int tm_pinned_cpu(const char* status_path) {
 		if (std::strncmp(line, "Cpus_allowed_list:", 18) != 0) {
 
 			continue;
-
 		}
 
 		char* p = line + 18;
@@ -352,7 +321,6 @@ static inline int tm_pinned_cpu(const char* status_path) {
 		while (*p == ' ' || *p == '\t') {
 
 			p++;
-
 		}
 
 		char* nl = std::strchr(p, '\n');
@@ -360,7 +328,6 @@ static inline int tm_pinned_cpu(const char* status_path) {
 		if (nl) {
 
 			*nl = '\0';
-
 		}
 
 		if (std::strchr(p, ',') || std::strchr(p, '-')) {
@@ -370,11 +337,9 @@ static inline int tm_pinned_cpu(const char* status_path) {
 		} else {
 
 			only = (int)std::strtol(p, nullptr, 10);
-
 		}
 
 		break;
-
 	}
 
 	std::fclose(f);
@@ -388,7 +353,6 @@ static inline int tm_pinned_cpu(const char* status_path) {
 	return -1;
 
 #endif
-
 }
 
 static inline std::vector<TidInfo> tm_scan_tids() {
@@ -402,7 +366,6 @@ static inline std::vector<TidInfo> tm_scan_tids() {
 	if (!d) {
 
 		return out;
-
 	}
 
 	struct dirent* e = nullptr;
@@ -412,7 +375,6 @@ static inline std::vector<TidInfo> tm_scan_tids() {
 		if (e->d_name[0] == '.') {
 
 			continue;
-
 		}
 
 		const long tid = std::strtol(e->d_name, nullptr, 10);
@@ -420,7 +382,6 @@ static inline std::vector<TidInfo> tm_scan_tids() {
 		if (tid <= 0) {
 
 			continue;
-
 		}
 
 		char pstat[256], pschd[256], pcomm[256], pstatus[256];
@@ -443,7 +404,6 @@ static inline std::vector<TidInfo> tm_scan_tids() {
 
 			ti.cpu_s = cpu_s;
 			ti.last_cpu = last_cpu;
-
 		}
 
 		FILE* fc = std::fopen(pcomm, "r");
@@ -459,19 +419,15 @@ static inline std::vector<TidInfo> tm_scan_tids() {
 				if (nl) {
 
 					*nl = '\0';
-
 				}
 
 				ti.comm = cb;
-
 			}
 
 			std::fclose(fc);
-
 		}
 
 		out.push_back(ti);
-
 	}
 
 	closedir(d);
@@ -479,7 +435,6 @@ static inline std::vector<TidInfo> tm_scan_tids() {
 #endif
 
 	return out;
-
 }
 
 static inline PerfCounters tm_perf_open() {
@@ -502,7 +457,6 @@ static inline PerfCounters tm_perf_open() {
 #endif
 
 	return pc;
-
 }
 
 static inline long long tm_perf_read_one(int fd) {
@@ -512,7 +466,6 @@ static inline long long tm_perf_read_one(int fd) {
 	if (fd < 0) {
 
 		return -1;
-
 	}
 
 	unsigned long long v[3] = {0, 0, 0};
@@ -520,19 +473,16 @@ static inline long long tm_perf_read_one(int fd) {
 	if (read(fd, v, sizeof(v)) != (ssize_t)sizeof(v)) {
 
 		return -1;
-
 	}
 
 	if (v[2] == 0) {
 
 		return -1;
-
 	}
 
 	if (v[1] == v[2]) {
 
 		return (long long)v[0];
-
 	}
 
 	return (long long)((double)v[0] * (double)v[1] / (double)v[2]);
@@ -544,7 +494,6 @@ static inline long long tm_perf_read_one(int fd) {
 	return -1;
 
 #endif
-
 }
 
 static inline void tm_perf_close(PerfCounters& pc) {
@@ -554,31 +503,26 @@ static inline void tm_perf_close(PerfCounters& pc) {
 	if (pc.fd_cycles >= 0) {
 
 		close(pc.fd_cycles);
-
 	}
 
 	if (pc.fd_insns >= 0) {
 
 		close(pc.fd_insns);
-
 	}
 
 	if (pc.fd_llc_ref >= 0) {
 
 		close(pc.fd_llc_ref);
-
 	}
 
 	if (pc.fd_llc_miss >= 0) {
 
 		close(pc.fd_llc_miss);
-
 	}
 
 	if (pc.fd_ref_cyc >= 0) {
 
 		close(pc.fd_ref_cyc);
-
 	}
 
 #endif
@@ -588,7 +532,6 @@ static inline void tm_perf_close(PerfCounters& pc) {
 	pc.fd_llc_ref = -1;
 	pc.fd_llc_miss = -1;
 	pc.fd_ref_cyc = -1;
-
 }
 
 static inline ThreadSnap tm_snapshot(const PerfCounters& pc) {
@@ -605,7 +548,6 @@ static inline ThreadSnap tm_snapshot(const PerfCounters& pc) {
 	s.ref_cycles = tm_perf_read_one(pc.fd_ref_cyc);
 
 	return s;
-
 }
 
 static inline double tm_delta(double b, double a) {
@@ -613,11 +555,9 @@ static inline double tm_delta(double b, double a) {
 	if (b < 0.0 || a < 0.0) {
 
 		return -1.0;
-
 	}
 
 	return b - a;
-
 }
 
 static inline long long tm_delta_ll(long long b, long long a) {
@@ -625,11 +565,9 @@ static inline long long tm_delta_ll(long long b, long long a) {
 	if (b < 0 || a < 0) {
 
 		return -1;
-
 	}
 
 	return b - a;
-
 }
 
 static inline long tm_delta_l(long b, long a) {
@@ -637,11 +575,9 @@ static inline long tm_delta_l(long b, long a) {
 	if (b < 0 || a < 0) {
 
 		return -1;
-
 	}
 
 	return b - a;
-
 }
 
 #endif

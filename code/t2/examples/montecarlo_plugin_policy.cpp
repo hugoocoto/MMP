@@ -1,5 +1,5 @@
-#include <algorithm>
 #include "malleable.hpp"
+#include <algorithm>
 
 extern "C" ResizeDecision montecarlo_policy(const EpochMetrics& m) {
 
@@ -10,7 +10,6 @@ extern "C" ResizeDecision montecarlo_policy(const EpochMetrics& m) {
 		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = m.active_n + 1;
 		return d;
-
 	}
 
 	if (m.any_settled && m.active_n > 2) {
@@ -18,9 +17,7 @@ extern "C" ResizeDecision montecarlo_policy(const EpochMetrics& m) {
 		d.vote = MAL_VOTE_RESIZE;
 		d.target_active_size = m.active_n - 1;
 		return d;
-
 	}
 
 	return d;
-
 }

@@ -1,17 +1,17 @@
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cmath>
-#include <csignal>
-#include <atomic>
-#include <vector>
-#include <string>
+#include <fcntl.h>
 #include <numeric>
 #include <random>
-#include <chrono>
-#include <unistd.h>
-#include <fcntl.h>
+#include <string>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <vector>
 
 #if defined(__linux__)
 #include <sys/sysinfo.h>
@@ -26,7 +26,6 @@ static std::atomic<bool> g_stop{false};
 static void on_signal(int) {
 
 	g_stop.store(true, std::memory_order_relaxed);
-
 }
 
 static const char* arg_str(int argc, char** argv, const char* key, const char* def) {
@@ -38,7 +37,6 @@ static const char* arg_str(int argc, char** argv, const char* key, const char* d
 		if (std::strncmp(argv[i], "--", 2) != 0) {
 
 			continue;
-
 		}
 
 		const char* a = argv[i] + 2;
@@ -46,13 +44,10 @@ static const char* arg_str(int argc, char** argv, const char* key, const char* d
 		if (std::strncmp(a, key, klen) == 0 && a[klen] == '=') {
 
 			return a + klen + 1;
-
 		}
-
 	}
 
 	return def;
-
 }
 
 static long arg_long(int argc, char** argv, const char* key, long def) {
@@ -62,11 +57,9 @@ static long arg_long(int argc, char** argv, const char* key, long def) {
 	if (!v || !*v) {
 
 		return def;
-
 	}
 
 	return std::strtol(v, nullptr, 10);
-
 }
 
 static bool file_exists(const char* path) {
@@ -74,7 +67,6 @@ static bool file_exists(const char* path) {
 	struct stat st;
 
 	return path && *path && stat(path, &st) == 0;
-
 }
 
 static void touch_file(const char* path) {
@@ -82,7 +74,6 @@ static void touch_file(const char* path) {
 	if (!path || !*path) {
 
 		return;
-
 	}
 
 	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -90,9 +81,7 @@ static void touch_file(const char* path) {
 	if (fd >= 0) {
 
 		close(fd);
-
 	}
-
 }
 
 static size_t probe_llc_bytes() {
@@ -113,7 +102,6 @@ static size_t probe_llc_bytes() {
 	if (sysctlbyname("hw.l3cachesize", &sz, &len, nullptr, 0) == 0 && sz > 0) {
 
 		v = (long)sz;
-
 	}
 
 #endif
@@ -121,11 +109,9 @@ static size_t probe_llc_bytes() {
 	if (v <= 0) {
 
 		v = 32L << 20;
-
 	}
 
 	return (size_t)v;
-
 }
 
 struct Stopper {
@@ -139,7 +125,6 @@ struct Stopper {
 		if (g_stop.load(std::memory_order_relaxed)) {
 
 			return true;
-
 		}
 
 		if (max_seconds > 0.0) {
@@ -149,15 +134,11 @@ struct Stopper {
 			if (el >= max_seconds) {
 
 				return true;
-
 			}
-
 		}
 
 		return file_exists(stop_file);
-
 	}
-
 };
 
 static int run_cpu(Stopper& stop, const char* ready_file) {
@@ -173,7 +154,6 @@ static int run_cpu(Stopper& stop, const char* ready_file) {
 		f = std::fma(f, e, d);
 		b = a * 0.9999999 + 1e-9;
 		c = d * 1.0000001 - 1e-9;
-
 	}
 
 	sink += a + b + c + d + e + f;
@@ -191,23 +171,18 @@ static int run_cpu(Stopper& stop, const char* ready_file) {
 				f = std::fma(f, e, d);
 				b = a * 0.9999999 + 1e-9;
 				c = d * 1.0000001 - 1e-9;
-
 			}
 
 			sink += a + b + c + d + e + f;
-
 		}
 
 		if (stop.should_stop()) {
 
 			break;
-
 		}
-
 	}
 
 	return (int)(sink != 0.0);
-
 }
 
 static int run_cache(Stopper& stop, const char* ready_file, size_t bytes) {
@@ -225,13 +200,11 @@ static int run_cache(Stopper& stop, const char* ready_file, size_t bytes) {
 
 		size_t j = rng() % (i + 1);
 		std::swap(perm[i], perm[j]);
-
 	}
 
 	for (size_t i = 0; i < n; i++) {
 
 		next[perm[i]] = perm[(i + 1) % n];
-
 	}
 
 	size_t idx = 0;
@@ -240,7 +213,6 @@ static int run_cache(Stopper& stop, const char* ready_file, size_t bytes) {
 	for (size_t k = 0; k < n; k++) {
 
 		idx = next[idx];
-
 	}
 
 	s += idx;
@@ -259,17 +231,13 @@ static int run_cache(Stopper& stop, const char* ready_file, size_t bytes) {
 
 				stop_now = true;
 				break;
-
 			}
-
 		}
 
 		s += idx + scratch[idx];
-
 	}
 
 	return (int)(s != 0);
-
 }
 
 static int run_io(Stopper& stop, const char* ready_file, const char* scratch_path, size_t block) {
@@ -289,7 +257,6 @@ static int run_io(Stopper& stop, const char* ready_file, const char* scratch_pat
 
 		flags = O_RDWR | O_CREAT | O_TRUNC;
 		fd = open(path.c_str(), flags, 0600);
-
 	}
 
 	if (fd < 0) {
@@ -297,7 +264,6 @@ static int run_io(Stopper& stop, const char* ready_file, const char* scratch_pat
 		std::fprintf(stderr, "noise_daemon io: cannot open %s\n", path.c_str());
 
 		return 1;
-
 	}
 
 #if defined(__APPLE__)
@@ -314,7 +280,6 @@ static int run_io(Stopper& stop, const char* ready_file, const char* scratch_pat
 		close(fd);
 
 		return 1;
-
 	}
 
 	std::memset(buf, 0xA5, block);
@@ -332,7 +297,6 @@ static int run_io(Stopper& stop, const char* ready_file, const char* scratch_pat
 		if (w < 0) {
 
 			off = 0;
-
 		}
 
 		fsync(fd);
@@ -352,7 +316,6 @@ static int run_io(Stopper& stop, const char* ready_file, const char* scratch_pat
 		if (off + (off_t)block >= filesz) {
 
 			off = 0;
-
 		}
 
 		if (((++cnt) & 63) == 0) {
@@ -360,15 +323,12 @@ static int run_io(Stopper& stop, const char* ready_file, const char* scratch_pat
 			char t[4096];
 			ssize_t r = pread(fd, t, sizeof(t), 0);
 			(void)r;
-
 		}
 
 		if (stop.should_stop()) {
 
 			break;
-
 		}
-
 	}
 
 	free(buf);
@@ -376,7 +336,6 @@ static int run_io(Stopper& stop, const char* ready_file, const char* scratch_pat
 	unlink(path.c_str());
 
 	return 0;
-
 }
 
 int main(int argc, char** argv) {
@@ -396,7 +355,6 @@ int main(int argc, char** argv) {
 	if (bytes == 0) {
 
 		bytes = std::max<size_t>(probe_llc_bytes() * 3, (size_t)512 << 20);
-
 	}
 
 	std::fprintf(stderr, "noise_daemon pid=%d mode=%s bytes=%zu block=%ld max_seconds=%.0f\n", (int)getpid(), mode, bytes, block, max_seconds);
@@ -406,23 +364,19 @@ int main(int argc, char** argv) {
 	if (std::strcmp(mode, "cpu") == 0) {
 
 		return run_cpu(stop, ready_file);
-
 	}
 
 	if (std::strcmp(mode, "cache") == 0) {
 
 		return run_cache(stop, ready_file, bytes);
-
 	}
 
 	if (std::strcmp(mode, "io") == 0) {
 
 		return run_io(stop, ready_file, scratch_path, (size_t)block);
-
 	}
 
 	std::fprintf(stderr, "noise_daemon: unknown mode '%s' (use cpu|cache|io)\n", mode);
 
 	return 2;
-
 }
