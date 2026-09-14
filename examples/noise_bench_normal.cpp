@@ -222,7 +222,7 @@ int main(int argc, char* argv[]) {
 		const double p_cpu = tm_delta(snap_loop.proc_cpu_s, snap_start.proc_cpu_s);
 		const double other_cpu = (c_main >= 0.0 && p_cpu >= 0.0) ? p_cpu - c_main : -1.0;
 
-		std::printf("TM,%d,%d,%d,%d,%d,%d,%ld,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%ld,%ld,%lld,%lld,%lld,%lld,%lld,%d,%lld,%lld,%lld,%lld,%.4f,%.4f,%d\n", rank, noisy ? 1 : 0, compute_core, -1, 1, tm_schedstats_enabled() ? 1 : 0, iters_done, wall_loop, compute_seconds, c_main, p_cpu, other_cpu, acc_kernel, 0.0, tm_delta(snap_loop.runq_s, snap_start.runq_s), -1.0, -1.0, tm_delta_l(snap_loop.nvcsw, snap_start.nvcsw), tm_delta_l(snap_loop.nivcsw, snap_start.nivcsw), tm_delta_ll(snap_loop.cycles, snap_start.cycles), tm_delta_ll(snap_loop.insns, snap_start.insns), tm_delta_ll(snap_loop.llc_ref, snap_start.llc_ref), tm_delta_ll(snap_loop.llc_miss, snap_start.llc_miss), tm_delta_ll(snap_loop.ref_cycles, snap_start.ref_cycles), 0, -1LL, -1LL, -1LL, -1LL, -1.0, -1.0, errors);
+		std::printf("TM,%d,%d,%d,%d,%d,%d,%ld,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%ld,%ld,%lld,%lld,%lld,%lld,%lld,%d\n", rank, noisy ? 1 : 0, compute_core, -1, 1, tm_schedstats_enabled() ? 1 : 0, iters_done, wall_loop, compute_seconds, c_main, p_cpu, other_cpu, acc_kernel, 0.0, tm_delta(snap_loop.runq_s, snap_start.runq_s), -1.0, -1.0, tm_delta_l(snap_loop.nvcsw, snap_start.nvcsw), tm_delta_l(snap_loop.nivcsw, snap_start.nivcsw), tm_delta_ll(snap_loop.cycles, snap_start.cycles), tm_delta_ll(snap_loop.insns, snap_start.insns), tm_delta_ll(snap_loop.llc_ref, snap_start.llc_ref), tm_delta_ll(snap_loop.llc_miss, snap_start.llc_miss), tm_delta_ll(snap_loop.ref_cycles, snap_start.ref_cycles), errors);
 		std::fflush(stdout);
 	}
 

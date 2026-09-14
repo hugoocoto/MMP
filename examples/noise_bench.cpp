@@ -149,10 +149,6 @@ int main(int argc, char* argv[]) {
 		#endif
 	}
 
-	papi_init();
-	long long papi_prime[kNumPapiEvents] = {0};
-	papi_accum_epoch(papi_prime);
-
 	PerfCounters pc = tm_perf_open();
 	const std::vector<TidInfo> tids_before = tm_scan_tids();
 	const double worker_cpu0 = mal_worker_cpu_seconds();
@@ -190,8 +186,6 @@ int main(int argc, char* argv[]) {
 	}
 
 	const double wall_loop = MPI_Wtime() - t0;
-	long long papi_vals[kNumPapiEvents] = {0};
-	const bool papi_ok = papi_accum_epoch(papi_vals);
 	const ThreadSnap snap_loop = tm_snapshot(pc);
 	const double worker_cpu1 = mal_worker_cpu_seconds();
 	const double worker_runq1 = mal_worker_runq_seconds();
@@ -275,14 +269,7 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		const long long p_cyc = papi_ok ? papi_vals[0] : -1;
-		const long long p_ins = papi_ok ? papi_vals[1] : -1;
-		const long long p_l3 = papi_ok ? papi_vals[2] : -1;
-		const long long p_ref = papi_ok ? papi_vals[3] : -1;
-		const double p_ipc = papi_ok ? papi_ipc(papi_vals) : -1.0;
-		const double p_memb = papi_ok ? papi_mem_bound_fraction(papi_vals) : -1.0;
-
-		std::printf("TM,%d,%d,%d,%d,%d,%d,%ld,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%ld,%ld,%lld,%lld,%lld,%lld,%lld,%d,%lld,%lld,%lld,%lld,%.4f,%.4f,%d\n", mal_rank(), noisy ? 1 : 0, compute_core, worker_core, (int)tids_after.size(), tm_schedstats_enabled() ? 1 : 0, iters_done, wall_loop, compute_seconds, c_main, p_cpu, other_cpu, acc_kernel, acc_check, tm_delta(snap_loop.runq_s, snap_start.runq_s), worker_cpu, worker_runq, tm_delta_l(snap_loop.nvcsw, snap_start.nvcsw), tm_delta_l(snap_loop.nivcsw, snap_start.nivcsw), tm_delta_ll(snap_loop.cycles, snap_start.cycles), tm_delta_ll(snap_loop.insns, snap_start.insns), tm_delta_ll(snap_loop.llc_ref, snap_start.llc_ref), tm_delta_ll(snap_loop.llc_miss, snap_start.llc_miss), tm_delta_ll(snap_loop.ref_cycles, snap_start.ref_cycles), papi_ok ? 1 : 0, p_cyc, p_ins, p_l3, p_ref, p_ipc, p_memb, errors);
+		std::printf("TM,%d,%d,%d,%d,%d,%d,%ld,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%ld,%ld,%lld,%lld,%lld,%lld,%lld,%d\n", mal_rank(), noisy ? 1 : 0, compute_core, worker_core, (int)tids_after.size(), tm_schedstats_enabled() ? 1 : 0, iters_done, wall_loop, compute_seconds, c_main, p_cpu, other_cpu, acc_kernel, acc_check, tm_delta(snap_loop.runq_s, snap_start.runq_s), worker_cpu, worker_runq, tm_delta_l(snap_loop.nvcsw, snap_start.nvcsw), tm_delta_l(snap_loop.nivcsw, snap_start.nivcsw), tm_delta_ll(snap_loop.cycles, snap_start.cycles), tm_delta_ll(snap_loop.insns, snap_start.insns), tm_delta_ll(snap_loop.llc_ref, snap_start.llc_ref), tm_delta_ll(snap_loop.llc_miss, snap_start.llc_miss), tm_delta_ll(snap_loop.ref_cycles, snap_start.ref_cycles), errors);
 		std::fflush(stdout);
 	}
 
@@ -334,8 +321,6 @@ int main(int argc, char* argv[]) {
 
 		std::free(buf);
 	}
-
-	papi_finalize();
 
 	return EXIT_SUCCESS;
 }

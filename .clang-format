@@ -165,33 +165,29 @@ IncludeCategories:
     Priority:        1
     SortPriority:    1
     CaseSensitive:   true
-  - Regex:           '^"malleable_papi\.cpp"$'
+  - Regex:           '^"malleable_types\.cpp"$'
     Priority:        1
     SortPriority:    2
     CaseSensitive:   true
-  - Regex:           '^"malleable_types\.cpp"$'
+  - Regex:           '^"malleable_resizer\.cpp"$'
     Priority:        1
     SortPriority:    3
     CaseSensitive:   true
-  - Regex:           '^"malleable_resizer\.cpp"$'
+  - Regex:           '^"malleable_runtime\.cpp"$'
     Priority:        1
     SortPriority:    4
     CaseSensitive:   true
-  - Regex:           '^"malleable_runtime\.cpp"$'
-    Priority:        1
-    SortPriority:    5
-    CaseSensitive:   true
   - Regex:           '^"'
     Priority:        1
-    SortPriority:    6
+    SortPriority:    5
     CaseSensitive:   false
-  - Regex:           '^<(mpi|papi)\.h>$'
+  - Regex:           '^<mpi\.h>$'
     Priority:        2
-    SortPriority:    7
+    SortPriority:    6
     CaseSensitive:   false
   - Regex:           '^<'
     Priority:        3
-    SortPriority:    8
+    SortPriority:    7
     CaseSensitive:   false
 IncludeIsMainRegex: '$^'
 IncludeIsMainSourceRegex: ''

@@ -14,8 +14,6 @@ If:
 CompileFlags:
   Add:
     - -I../include
-    - -include
-    - ../src/malleable_resizer.cpp
 ---
 If:
   PathMatch: examples/.*

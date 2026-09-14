@@ -1,4 +1,4 @@
-#include "malleable.hpp"
+#include "../src/malleable_internal.hpp"
 
 #include <algorithm>
 #include <cstring>

@@ -1,7 +1,4 @@
-#ifndef MALLEABLE_RESIZER_CPP_INCLUDED
-#define MALLEABLE_RESIZER_CPP_INCLUDED
-
-#include "malleable_types.cpp"
+#include "malleable_internal.hpp"
 
 constexpr double kEpsDone = 1.0;
 constexpr double kEpsElapsed = 1e-6;
@@ -100,81 +97,6 @@ inline bool reuse_flag_at(const std::vector<int>& all_reuse_flags, int n, int ra
 
 	return all_reuse_flags[(size_t)rank * (size_t)n + (size_t)vi] != 0;
 }
-
-class Resizer {
-
-	std::vector<std::pair<long, long>> remaining_;
-	std::vector<long> remaining_offsets_;
-	std::vector<long> target_cuts_;
-	long total_rem_{0};
-
-	struct VecTask {
-
-		MalVec* v{nullptr};
-		StagedBuffer gathered;
-	};
-
-	struct VecMeta {
-
-		size_t esz{0};
-		int shared_active{0};
-		int ragged{0};
-	};
-
-	std::vector<VecTask> vtasks_;
-	std::vector<VecMeta> vmeta_;
-	std::vector<long> rem_per_rank_;
-	std::vector<std::vector<char>> new_epoch_bufs_;
-	std::vector<std::pair<long, long>> scratch_assigned_;
-	std::vector<int> scratch_reuse_flags_;
-	std::vector<int> scratch_all_reuse_flags_;
-
-	std::vector<long> flat_buf_;
-	std::vector<int> flat_counts_buf_;
-	std::vector<int> flat_displs_buf_;
-	std::vector<double> all_lb_buf_;
-	std::vector<double> fused_gather_buf_;
-
-	std::vector<TransferPlanEntry> build_transfer_plan(const std::vector<long>& old_vs) const;
-	void init_vec_tasks(int n, int nvecs, bool was_active);
-	void reserve_receiver_buffers(int n, bool am_receiver, const std::vector<TransferPlanEntry>& plan, long my_new_count, const std::vector<int>& all_reuse_flags);
-	void exchange_vec_data(int n, bool was_active, const std::vector<long>& old_vs, const std::vector<TransferPlanEntry>& plan, const std::vector<int>& all_reuse_flags);
-
-	void collect_ranges();
-	std::vector<long> compute_target_cuts(long total_rem, int target);
-	void redistribute_vecs(int n_vecs);
-	void reduce_accs(int n_accs);
-	void apply_active();
-	void apply_inactive();
-	void broadcast_shared_vecs();
-	void broadcast_shared_mats();
-	void stash_gather_cache();
-
-	int target_;
-	int old_a_size_{0};
-	long my_new_vs_{0};
-	long my_new_count_{0};
-	long confirmed_snapshot_{LONG_MIN};
-	std::vector<long> done_snapshot_;
-
-public:
-
-	explicit Resizer(int target) : target_(target) {}
-
-	~Resizer() {
-
-		for (auto& t : vtasks_) {
-
-			if (t.gathered.ptr) {
-
-				g_buffer_pool.release(t.gathered.ptr, t.gathered.bytes);
-			}
-		}
-	}
-
-	void prepare_phase();
-	void commit_phase();
-};
 
 EpochMetrics gather_epoch_metrics() {
 
@@ -2700,5 +2622,3 @@ void progress_thread() {
 	worker_self_sample();
 	g.sync.notify();
 }
-
-#endif

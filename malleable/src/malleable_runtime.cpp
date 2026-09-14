@@ -1,11 +1,8 @@
-#include "malleable_resizer.cpp"
+#include "malleable_internal.hpp"
+
 #include <csignal>
 #include <cstdlib>
 #include <string>
-
-#include "../builtin_policies/auto.cpp"
-#include "../builtin_policies/cost.cpp"
-#include "../builtin_policies/fixed_sequence.cpp"
 
 static void log_mpi_error(const char* where, int rc) {
 
@@ -1222,7 +1219,7 @@ inline void maybe_enter_running_phase(MalFor& f, bool ignore_attach_pending_gate
 	}
 }
 
-static void seal_loop_vecs(MalFor& prev) {
+void seal_loop_vecs(MalFor& prev) {
 
 	const long confirmed = prev.confirmed_iter.load(std::memory_order_acquire);
 
