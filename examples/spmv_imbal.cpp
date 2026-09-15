@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
 
 	const double t0 = MPI_Wtime();
 	long row, lim;
-	MalFor f = mal_for(M, row, lim);
+	MalFor f = mal_for(M, &row, &lim);
 
 	mal_attach_vec(f, (void**)&y, sizeof(float), M, 0);
 

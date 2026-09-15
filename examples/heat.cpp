@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
 		mal_loop_horizon(T - t);
 
 		long i, lim;
-		MalFor f = mal_for(D, i, lim);
+		MalFor f = mal_for(D, &i, &lim);
 
 		for (; i < lim; i++) {
 

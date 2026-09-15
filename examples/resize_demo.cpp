@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	long i, lim;
-	MalFor f = mal_for(N, i, lim);
+	MalFor f = mal_for(N, &i, &lim);
 
 	mal_attach_vec(f, (void**)&data, sizeof(float), N, 0);
 

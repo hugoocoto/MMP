@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
 	const double t0 = MPI_Wtime();
 
 	long i, limit;
-	MalFor f = mal_for(total_points, i, limit);
+	MalFor f = mal_for(total_points, &i, &limit);
 
 	#if !BENCH_CSV
 
@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
 	#endif
 
 	long hits = 0;
-	mal_attach_acc(f, hits);
+	mal_attach_acc(f, &hits);
 
 	for (; i < limit; i++) {
 

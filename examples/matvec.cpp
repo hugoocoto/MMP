@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
 
 	const double t0 = MPI_Wtime();
 	long i, lim;
-	MalFor f = mal_for(M, i, lim);
+	MalFor f = mal_for(M, &i, &lim);
 
 	#if !BENCH_CSV
 

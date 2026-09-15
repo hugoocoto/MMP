@@ -25,9 +25,9 @@ int main(int argc, char* argv[]) {
 
 	double sum_sq = 0.0;
 	long i1, lim1;
-	MalFor f1 = mal_for(N, i1, lim1);
+	MalFor f1 = mal_for(N, &i1, &lim1);
 
-	mal_attach_acc(f1, sum_sq);
+	mal_attach_acc(f1, &sum_sq);
 
 	for (; i1 < lim1; i1++) {
 
@@ -35,11 +35,11 @@ int main(int argc, char* argv[]) {
 		mal_check_for(f1);
 	}
 
-	mal_sync(f1, sum_sq);
+	mal_sync(f1, &sum_sq, 1);
 	const double norm = std::sqrt(sum_sq);
 
 	long i2, lim2;
-	MalFor f2 = mal_for(N, i2, lim2);
+	MalFor f2 = mal_for(N, &i2, &lim2);
 
 	mal_attach_vec(f2, (void**)&y, sizeof(double), N, 0);
 

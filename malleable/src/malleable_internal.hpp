@@ -115,7 +115,7 @@ void mal_set_attach_exec_mode(MalAttachExecMode mode);
 void mal_wait_attach_tasks();
 
 [[nodiscard]] MalCollapseSpec mal_make_collapse_spec(const long* extents, size_t ndims);
-[[nodiscard]] MalFor mal_for_collapse(const MalCollapseSpec& spec, long& iter, long& limit);
+[[nodiscard]] MalFor mal_for_collapse(const MalCollapseSpec& spec, long* iter, long* limit);
 void mal_collapse_decode(const MalCollapseSpec& spec, long flat_iter, long* indices_out);
 
 [[nodiscard]] bool mal_for_nd_done(const MalForND& f);

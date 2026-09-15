@@ -30,12 +30,12 @@ int main(int argc, char* argv[]) {
 	const double t0 = MPI_Wtime();
 
 	long i, limit;
-	MalFor f = mal_for(total_points, i, limit);
+	MalFor f = mal_for(total_points, &i, &limit);
 
 	const useconds_t delay_us = example_delay_us(200000);
 
 	long hits = 0;
-	mal_attach_acc(f, hits);
+	mal_attach_acc(f, &hits);
 
 	for (; i < limit; i++) {
 

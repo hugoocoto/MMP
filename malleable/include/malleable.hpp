@@ -25,6 +25,8 @@
           precedence over the built-in policy selected by mal_init() or MAL_RESIZE_POLICY
         - One malleable loop at a time: a new mal_for() seals the data attached to the previous one,
           keep the MalFor/MalForND alive until the loop ends
+        - mal_for() keeps the iter/limit addresses for the MalFor lifetime, mal_attach_acc() keeps
+          the acc address until mal_finalize(): those variables must outlive them
         - Attached pointers are rebased to global indices: iteration i always accesses (*user_ptr)[i]
         - mal_rank()/mal_size() refer to the universe (every launched rank), mal_active_size() to
           the active set
@@ -33,7 +35,7 @@
         mal_init();
         double *data = (mal_rank() == 0)? load_data(N) : nullptr;
         long i, lim;
-        MalFor f = mal_for(N, i, lim);
+        MalFor f = mal_for(N, &i, &lim);
         mal_attach_vec(f, (void**)&data, sizeof(double), N, 0); // Gather result into rank 0
         for (; i < lim; i++) {
             data[i] = compute(i);
@@ -79,28 +81,7 @@
         MAL_COST_SAMPLE_MEAS=3          cost policy, iterative kernels: epochs measured per sampled size
 
 
-    LICENSE: MIT
-
-    Copyright (c) 2026 Pablo Liste Cancela
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
-
+    LICENSE: MIT. See /LICENSE
 */
 
 #pragma once
@@ -435,7 +416,7 @@ MAL_API void mal_set_decide_resize_state_funcs(ResizeStateSaveFunc save, ResizeS
 MAL_API void mal_set_decide_resize_state_plugin(const char* save_func_name, const char* load_func_name); // Set decision state callbacks from the loaded decision plugin, abort on failure
 
 // Malleable loop functions
-[[nodiscard]] MAL_API MalFor mal_for(long total_iters, long& iter, long& limit); // Begin loop over [0, total_iters): set iter/limit to this rank's range, inactive ranks wait for work
+[[nodiscard]] MAL_API MalFor mal_for(long total_iters, long* iter, long* limit); // Begin loop over [0, total_iters): set *iter/*limit to this rank's range, inactive ranks wait for work
 MAL_API void mal_check_for(MalFor& f); // Loop checkpoint, call last in every iteration: may move iter/limit to new work after a resize
 [[nodiscard]] MAL_API MalForND mal_for_nd_begin(long* const* vars, const long* starts, const long* limits, size_t ndims); // Begin nested loop over [starts[d], limits[d]) collapsed into one loop, indices written to *vars[d]
 [[nodiscard]] MAL_API MalForND mal_for_nd_begin(long* const* iter_vars, long* const* limit_vars, const long* starts, const long* limits, size_t ndims); // Begin collapsed nested loop, also write limits[d] to *limit_vars[d]
@@ -501,12 +482,12 @@ template<typename T> inline void acc_reset_t(void* p) {
 
 }
 
-// Attach accumulator reduced with op across ranks, acc is set to op's identity and holds the result on result_rank after mal_finalize()
-template<typename T> inline void mal_attach_acc(MalFor& f, T& acc, MPI_Datatype dtype, MPI_Op op, int result_rank = 0) {
+// Attach accumulator reduced with op across ranks, *acc is set to op's identity and holds the result on result_rank after mal_finalize()
+template<typename T> inline void mal_attach_acc(MalFor& f, T* acc, MPI_Datatype dtype, MPI_Op op, int result_rank = 0) {
 
 	detail::acc_register(f, {
 
-								&acc,
+								acc,
 								dtype,
 								op,
 								sizeof(T),
@@ -519,34 +500,28 @@ template<typename T> inline void mal_attach_acc(MalFor& f, T& acc, MPI_Datatype 
 }
 
 // Attach accumulator of a basic type (MpiType), reduced with MPI_SUM
-template<typename T> inline void mal_attach_acc(MalFor& f, T& acc, int result_rank = 0) {
+template<typename T> inline void mal_attach_acc(MalFor& f, T* acc, int result_rank = 0) {
 
 	mal_attach_acc(f, acc, MpiType<T>::value(), MPI_SUM, result_rank);
 }
 
 // Attach accumulator of a basic type to a nested loop, reduced with MPI_SUM
-template<typename T> inline void mal_attach_acc(MalForND& f, T& acc, int result_rank = 0) {
+template<typename T> inline void mal_attach_acc(MalForND& f, T* acc, int result_rank = 0) {
 
 	mal_attach_acc(mal_for_nd_base(f), acc, result_rank);
 }
 
-// Reduce value across the active ranks
-// NOTE: On an attached accumulator it reduces over every rank now and seals it, skipping mal_finalize()
-template<typename T> inline void mal_sync(MalFor& f, T& value, MPI_Op op = MPI_SUM) {
-
-	mal_sync_impl(f, &value, 1, MpiType<T>::value(), op);
-}
-
 // Reduce count values in place across the active ranks
+// NOTE: If count is 1 and values is an attached accumulator, it reduces over every rank now and seals it, skipping mal_finalize()
 template<typename T> inline void mal_sync(MalFor& f, T* values, int count, MPI_Op op = MPI_SUM) {
 
 	mal_sync_impl(f, values, count, MpiType<T>::value(), op);
 }
 
-// Reduce value across the active ranks of a nested loop
-template<typename T> inline void mal_sync(MalForND& f, T& value, MPI_Op op = MPI_SUM) {
+// Reduce count values in place across the active ranks of a nested loop
+template<typename T> inline void mal_sync(MalForND& f, T* values, int count, MPI_Op op = MPI_SUM) {
 
-	mal_sync_impl(mal_for_nd_base(f), &value, 1, MpiType<T>::value(), op);
+	mal_sync_impl(mal_for_nd_base(f), values, count, MpiType<T>::value(), op);
 }
 
 // Broadcast value from active rank root to the active ranks

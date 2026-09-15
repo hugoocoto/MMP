@@ -1245,14 +1245,14 @@ void seal_loop_vecs(MalFor& prev) {
 	}
 }
 
-MalFor mal_for(long total_iters, long& iter, long& limit) {
+MalFor mal_for(long total_iters, long* iter, long* limit) {
 
 	const double t_for_start = MPI_Wtime();
 
 	MalFor f;
 
-	f.user_iter = &iter;
-	f.user_limit = &limit;
+	f.user_iter = iter;
+	f.user_limit = limit;
 	f.gen = g.loop_gen.fetch_add(1, std::memory_order_acq_rel) + 1;
 
 	if (g.loop != nullptr && g.loop != &f) {
@@ -1303,7 +1303,7 @@ MalFor mal_for(long total_iters, long& iter, long& limit) {
 	}
 
 	set_iter(f, f.start);
-	limit = f.end;
+	*limit = f.end;
 
 	f.confirmed_iter.store(f.start - 1, std::memory_order_release);
 

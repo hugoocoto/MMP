@@ -95,7 +95,7 @@ int main(int argc, char* argv[]) {
 	mal_init(MAL_RESIZE_POLICY_CUSTOM);
 
 	long i, limit;
-	MalFor f = mal_for(total, i, limit);
+	MalFor f = mal_for(total, &i, &limit);
 
 	for (; i < limit; i++) {
 

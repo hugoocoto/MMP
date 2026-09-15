@@ -1486,7 +1486,7 @@ MalCollapseSpec mal_make_collapse_spec(const long* extents, size_t ndims) {
 	return spec;
 }
 
-MalFor mal_for_collapse(const MalCollapseSpec& spec, long& iter, long& limit) {
+MalFor mal_for_collapse(const MalCollapseSpec& spec, long* iter, long* limit) {
 
 	return mal_for(spec.total_iters, iter, limit);
 }
@@ -1551,7 +1551,7 @@ MalForND mal_for_nd_begin(long* const* vars, const long* starts, const long* lim
 
 	out.spec = mal_make_collapse_spec(extents.data(), ndims);
 	out.decoded_idx.assign(ndims, 0);
-	out.base = std::make_unique<MalFor>(mal_for_collapse(out.spec, out.flat, out.flat_limit));
+	out.base = std::make_unique<MalFor>(mal_for_collapse(out.spec, &out.flat, &out.flat_limit));
 
 	out.done = (out.flat >= out.flat_limit);
 
