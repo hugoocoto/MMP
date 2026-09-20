@@ -485,17 +485,7 @@ template<typename T> inline void acc_reset_t(void* p) {
 // Attach accumulator reduced with op across ranks, *acc is set to op's identity and holds the result on result_rank after mal_finalize()
 template<typename T> inline void mal_attach_acc(MalFor& f, T* acc, MPI_Datatype dtype, MPI_Op op, int result_rank = 0) {
 
-	detail::acc_register(f, {
-
-								acc,
-								dtype,
-								op,
-								sizeof(T),
-								detail::acc_get_t<T>,
-								detail::acc_set_t<T>,
-								detail::acc_add_t<T>,
-								detail::acc_reset_t<T>,
-							},
+	detail::acc_register(f, {acc, dtype, op, sizeof(T), detail::acc_get_t<T>, detail::acc_set_t<T>, detail::acc_add_t<T>, detail::acc_reset_t<T>},
 		result_rank);
 }
 
