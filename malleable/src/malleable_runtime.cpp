@@ -141,6 +141,103 @@ static bool parse_env_log_level(const char* text, MalLogLevel& out) {
 	return false;
 }
 
+/* Tunable getters: one per environment variable, so callers never name a
+ * variable or repeat a default. Read on every call instead of being cached in
+ * g.cfg, which keeps them valid before mal_init() as well as after it: the
+ * plugin path and the loop length are needed before the runtime is up. */
+
+long mal_get_iters() {
+
+	return mal_env_long("MAL_ITERS", 0, 0, LONG_MAX);
+}
+
+const char* mal_get_plugin_so() {
+
+	return std::getenv("MAL_PLUGIN_SO");
+}
+
+const char* mal_get_plugin_fn() {
+
+	const char* v = std::getenv("MAL_PLUGIN_FN");
+
+	return (v && *v) ? v : "decide";
+}
+
+double mal_get_kernel_f() {
+
+	return mal_env_double("MAL_KERNEL_F", 1.0, 0.0, 1.0);
+}
+
+long mal_get_kernel_work() {
+
+	return mal_env_long("MAL_KERNEL_WORK", 256, 1, LONG_MAX);
+}
+
+double mal_get_policy_margin() {
+
+	return mal_env_double("MAL_POLICY_MARGIN", 0.02, 0.0, 1.0);
+}
+
+double mal_get_policy_lambda() {
+
+	return mal_env_double("MAL_POLICY_LAMBDA", 1.0, 0.0, 1e3);
+}
+
+double mal_get_policy_imbalance() {
+
+	return mal_env_double("MAL_POLICY_IMBALANCE", 1.25, 1.0, 1e3);
+}
+
+long mal_get_policy_warmup() {
+
+	return mal_env_long("MAL_POLICY_WARMUP", 2, 0, 1000000);
+}
+
+long mal_get_policy_settle() {
+
+	return mal_env_long("MAL_POLICY_SETTLE", 8, 1, 1000000);
+}
+
+double mal_get_policy_cost_fixed() {
+
+	return mal_env_double("MAL_POLICY_COST_FIXED", 0.05, 0.0, 1e6);
+}
+
+double mal_get_policy_cost_migration() {
+
+	return mal_env_double("MAL_POLICY_COST_MIGRATION", 0.20, 0.0, 1e6);
+}
+
+double mal_get_policy_cost_rebalance() {
+
+	return mal_env_double("MAL_POLICY_COST_REBALANCE", 0.02, 0.0, 1e6);
+}
+
+double mal_get_est_f() {
+
+	return mal_env_double("MAL_EST_F", 0.9, 0.0, 1.0);
+}
+
+double mal_get_est_delta() {
+
+	return mal_env_double("MAL_EST_DELTA", 0.0, 0.0, 1e6);
+}
+
+double mal_get_est_sigma() {
+
+	return mal_env_double("MAL_EST_SIGMA", 0.05, 0.0, 1e3);
+}
+
+double mal_get_est_alpha() {
+
+	return mal_env_double("MAL_EST_ALPHA", 0.3, 0.0, 1.0);
+}
+
+double mal_get_est_bootstrap() {
+
+	return mal_env_double("MAL_EST_BOOTSTRAP", 0.35, 0.0, 1e3);
+}
+
 void mal_set_epoch_interval_ms(int ms) {
 
 	if (ms > 0) {

@@ -80,6 +80,26 @@
         MAL_COST_SAMPLE_REFINE=0        cost policy, iterative kernels: refine around best size with step/4
         MAL_COST_SAMPLE_MEAS=3          cost policy, iterative kernels: epochs measured per sampled size
 
+    ENVIRONMENT VARIABLES (read on every mal_get_*() call, see below):
+        MAL_ITERS                       Harness loop length, total iterations
+        MAL_PLUGIN_SO                   Decision plugin .so to dlopen()
+        MAL_PLUGIN_FN=decide            Decision function symbol inside it
+        MAL_KERNEL_F=1.0                Synthetic kernel: scalable fraction, in [0, 1]
+        MAL_KERNEL_WORK=256             Synthetic kernel: inner passes per iteration at f = 1
+        MAL_POLICY_MARGIN=0.02          Policy: minimum gain, as a fraction of remaining work time
+        MAL_POLICY_LAMBDA=1.0           Policy: risk aversion, multiplies estimator uncertainty
+        MAL_POLICY_IMBALANCE=1.25       Policy: imbalance ratio above which a rebalance is voted
+        MAL_POLICY_WARMUP=2             Policy: epochs observed before the first non-abstain vote
+        MAL_POLICY_SETTLE=8             Policy: consecutive keeps before reporting settled
+        MAL_POLICY_COST_FIXED=0.05      Resize cost: fixed overhead per size change, in seconds
+        MAL_POLICY_COST_MIGRATION=0.20  Resize cost: migrating the whole dataset, in seconds
+        MAL_POLICY_COST_REBALANCE=0.02  Resize cost: same-size rebalance, in seconds
+        MAL_EST_F=0.9                   Estimator: assumed scalable fraction
+        MAL_EST_DELTA=0.0               Estimator: seconds added per doubling of the active size
+        MAL_EST_SIGMA=0.05              Estimator: relative uncertainty scale
+        MAL_EST_ALPHA=0.3               Estimator: EWMA weight of the newest sample at a size
+        MAL_EST_BOOTSTRAP=0.35          Estimator: relative uncertainty per doubling while unfitted
+
 
     LICENSE: MIT. See /LICENSE
 */
@@ -407,6 +427,28 @@ MAL_API void mal_set_resize_min_horizon_epochs(int epochs); // Set remaining-tim
 [[nodiscard]] MAL_API bool mal_env_bool(const char* name, bool fallback); // Get boolean environment variable: 0/1, true/false, on/off, yes/no
 [[nodiscard]] MAL_API long mal_env_long(const char* name, long fallback, long min, long max); // Get integer environment variable in [min, max]
 [[nodiscard]] MAL_API double mal_env_double(const char* name, double fallback, double min, double max); // Get floating-point environment variable in [min, max]
+
+// Tunable getters, one per environment variable
+// NOTE: Read on every call, so they are valid before mal_init() as well as after it
+// NOTE: Invalid values are ignored with a warning and the default is returned
+[[nodiscard]] MAL_API long mal_get_iters(); // Get MAL_ITERS: total iterations of the harness loop (0 if unset)
+[[nodiscard]] MAL_API const char* mal_get_plugin_so(); // Get MAL_PLUGIN_SO: decision plugin path (nullptr if unset)
+[[nodiscard]] MAL_API const char* mal_get_plugin_fn(); // Get MAL_PLUGIN_FN: decision function symbol (default: "decide")
+[[nodiscard]] MAL_API double mal_get_kernel_f(); // Get MAL_KERNEL_F: scalable fraction of the synthetic kernel (default: 1.0)
+[[nodiscard]] MAL_API long mal_get_kernel_work(); // Get MAL_KERNEL_WORK: inner passes per kernel iteration at f = 1 (default: 256)
+[[nodiscard]] MAL_API double mal_get_policy_margin(); // Get MAL_POLICY_MARGIN: minimum gain as a fraction of remaining work time (default: 0.02)
+[[nodiscard]] MAL_API double mal_get_policy_lambda(); // Get MAL_POLICY_LAMBDA: risk aversion, multiplies the estimator uncertainty (default: 1.0)
+[[nodiscard]] MAL_API double mal_get_policy_imbalance(); // Get MAL_POLICY_IMBALANCE: imbalance ratio above which a rebalance is voted (default: 1.25)
+[[nodiscard]] MAL_API long mal_get_policy_warmup(); // Get MAL_POLICY_WARMUP: epochs observed before the first non-abstain vote (default: 2)
+[[nodiscard]] MAL_API long mal_get_policy_settle(); // Get MAL_POLICY_SETTLE: consecutive keeps before a policy reports settled (default: 8)
+[[nodiscard]] MAL_API double mal_get_policy_cost_fixed(); // Get MAL_POLICY_COST_FIXED: seconds of fixed overhead per size change (default: 0.05)
+[[nodiscard]] MAL_API double mal_get_policy_cost_migration(); // Get MAL_POLICY_COST_MIGRATION: seconds to migrate the whole dataset (default: 0.20)
+[[nodiscard]] MAL_API double mal_get_policy_cost_rebalance(); // Get MAL_POLICY_COST_REBALANCE: seconds for a same-size rebalance (default: 0.02)
+[[nodiscard]] MAL_API double mal_get_est_f(); // Get MAL_EST_F: scalable fraction assumed by a fixed-parameter estimator (default: 0.9)
+[[nodiscard]] MAL_API double mal_get_est_delta(); // Get MAL_EST_DELTA: seconds added per doubling of the active size (default: 0.0)
+[[nodiscard]] MAL_API double mal_get_est_sigma(); // Get MAL_EST_SIGMA: relative uncertainty scale of an estimator (default: 0.05)
+[[nodiscard]] MAL_API double mal_get_est_alpha(); // Get MAL_EST_ALPHA: EWMA weight of the newest sample at a size (default: 0.3)
+[[nodiscard]] MAL_API double mal_get_est_bootstrap(); // Get MAL_EST_BOOTSTRAP: relative uncertainty per doubling while a fit is unavailable (default: 0.35)
 
 // Resize decision functions
 // NOTE: Call them before mal_init()
