@@ -1414,7 +1414,13 @@ MalFor mal_for(long total_iters, long* iter, long* limit) {
 
 	const bool iterative_loop = g.sync.iterative_kernel.load(std::memory_order_acquire);
 
-	const bool skip_idle_activation_wait = (f.start == f.end) && !g.sync.pending_has_ranges.load(std::memory_order_acquire) && (iterative_loop || total_iters <= g.comm.a_size);
+	/* A rank with no iterations is only ever given work by a resize or a rebalance: with both
+	 * disabled nothing can hand it a range, and waiting for activation would block forever,
+	 * because the loop-done generation that releases it is published by the epoch machinery
+	 * that the same two switches turn off. Fall through with an empty range instead. */
+	const bool activation_possible = g.cfg.malleability_enabled.load(std::memory_order_relaxed) && (g.cfg.enabled.load(std::memory_order_relaxed) || g.cfg.load_balancing_enabled.load(std::memory_order_relaxed));
+
+	const bool skip_idle_activation_wait = (f.start == f.end) && !g.sync.pending_has_ranges.load(std::memory_order_acquire) && (!activation_possible || iterative_loop || total_iters <= g.comm.a_size);
 
 	while (!skip_idle_activation_wait && f.start == f.end && !g.sync.stop.load(std::memory_order_acquire) && g.sync.loop_done_gen.load(std::memory_order_acquire) < f.gen) {
 
