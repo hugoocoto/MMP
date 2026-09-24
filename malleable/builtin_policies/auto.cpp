@@ -126,12 +126,6 @@ ResizeDecision decide_core(const EpochMetrics& m, double threshold) {
 
 	update_baseline(m);
 
-	if (m.resize_cooldown_remaining > 0) {
-
-		MAL_LOG_L(MAL_LOG_DEBUG, "AUTO", "Resize skipped: resize_cooldown=%d", m.resize_cooldown_remaining);
-		return out;
-	}
-
 	const bool in_rebalance_cooldown = (m.rebalance_cooldown_remaining > 0);
 	const int U = mal_size();
 

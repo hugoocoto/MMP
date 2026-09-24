@@ -88,6 +88,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 	out.vote = MAL_VOTE_RESIZE;
 	out.target_active_size = g_seq[i];
+	out.skip_cooldown = true;
 
 	return out;
 }

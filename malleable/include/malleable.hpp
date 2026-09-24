@@ -61,8 +61,8 @@
                                         fixed|fixed_sequence, cost (overrides mal_init() argument)
         MAL_RESIZE_SEQ                  fixed policy: comma-separated active sizes to visit, in order
         MAL_RESIZE_QUORUM=1.0           Fraction of voting ranks that must agree on a direction (0.5, 1]
-        MAL_EPOCH_INTERVAL_MS=1000      Time between resize evaluations
-        MAL_FAST_RESPONSE=0             No cooldown epochs after a resize
+        MAL_EPOCH_INTERVAL_MS=1000      Initial time between resize evaluations (see ResizeDecision.next_epoch_ms)
+        MAL_FAST_RESPONSE=0             No cooldown epochs after a resize or rebalance
         MAL_STENCIL_EPOCH_STEPS=64      mal_step(): evaluate resize every N steps
         MAL_STENCIL_RESID_REDUCES=1     mal_step(): residual allreduces run on non-evaluation steps
         MAL_EPOCH_CHANGE_MODE=1         Parsed, currently unused
@@ -231,6 +231,8 @@ struct ResizeDecision {
 	bool done{false}; // Loop is finished: stop evaluating resizes for it on all ranks
 	int target_active_size{-1}; // Desired active size when voting MAL_VOTE_RESIZE, 1..mal_size() (current size: rebalance)
 	bool settled{false}; // Policy converged: mal_step() kernels stop per-epoch evaluation
+	int next_epoch_ms{0}; // New epoch interval in ms, kept until changed again (0: unchanged; ranks disagreeing: max wins)
+	bool skip_cooldown{false}; // No cooldown after the resize this vote leads to (applied only if every active rank sets it)
 };
 
 // EpochMetrics, reduced over all ranks and passed to the decision function every epoch
@@ -248,10 +250,9 @@ struct EpochMetrics {
 	int max_slow_streak{0}; // Longest run of consecutive epochs a rank stayed > 1.5x the mean remaining time
 	bool any_settled{false}; // At least one rank's last decision was settled
 	int resize_commit_count{0}; // Resizes and rebalances committed so far
-	int resize_cooldown_remaining{0}; // Epochs left of cooldown after last resize (advisory, not enforced)
-	int rebalance_cooldown_remaining{0}; // Epochs left of cooldown after last rebalance (advisory, not enforced)
+	int rebalance_cooldown_remaining{0}; // Epochs left of cooldown after last rebalance (enforced: rebalance votes count as keep)
 	double epoch_elapsed{0.0}; // Time elapsed in the current epoch (max over active ranks)
-	int epoch_interval_ms{0}; // Configured epoch interval (MAL_EPOCH_INTERVAL_MS)
+	int epoch_interval_ms{0}; // Current epoch interval (MAL_EPOCH_INTERVAL_MS or last ResizeDecision.next_epoch_ms)
 	bool iterative_kernel{false}; // Loop is an iterative kernel (mal_loop_horizon() was called)
 
 	// Get load imbalance: max_rem_time over mean remaining time (1.0: balanced, 0.0: unknown)
@@ -275,6 +276,8 @@ struct ResizeStateBlob {
 };
 
 // Resize decision function: called once per epoch on every active rank, from the runtime worker thread
+// NOTE: Not called during the cooldown epochs after a resize (ranks vote keep): the first epochs at a new size
+// are dirty (migration, cold caches), so the function only sees clean ones
 using DecideResizeFunc = ResizeDecision (*)(const EpochMetrics& m);
 
 // Decision state save callback: called on active rank 0 after every committed resize

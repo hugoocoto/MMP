@@ -53,8 +53,6 @@ struct CostState {
 
 	int gate_fire_streak{0};
 	int gate_giveup_at_n{-1};
-
-	bool cooldown_exempt{false};
 };
 
 struct CostConfig {
@@ -150,12 +148,6 @@ ResizeDecision decide_phase(const EpochMetrics& m) {
 
 	const double thr = (g_state.prev_g > kEpsThroughput) ? kCostEwmaAlpha * g_state.prev_g + (1.0 - kCostEwmaAlpha) * thr_inst : thr_inst;
 	g_state.prev_g = thr;
-
-	if (m.resize_cooldown_remaining > 0 && g_state.phase != Phase::SAMPLE && !g_state.cooldown_exempt) {
-
-		MAL_LOG_L(MAL_LOG_DEBUG, "COST", "Resize skipped: resize_cooldown=%d", m.resize_cooldown_remaining);
-		return out;
-	}
 
 	const double keep = g_config.keep_fraction;
 
@@ -447,10 +439,7 @@ ResizeDecision decide(const EpochMetrics& m) {
 
 	ResizeDecision out = decide_phase(m);
 
-	if (out.vote == MAL_VOTE_RESIZE && out.target_active_size != m.active_n) {
-
-		g_state.cooldown_exempt = (g_state.phase == Phase::SAMPLE);
-	}
+	out.skip_cooldown = (out.vote == MAL_VOTE_RESIZE && out.target_active_size != m.active_n && g_state.phase == Phase::SAMPLE);
 
 	out.settled = (g_state.phase == Phase::SETTLED);
 	return out;

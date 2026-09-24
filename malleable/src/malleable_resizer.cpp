@@ -181,11 +181,7 @@ EpochMetrics gather_epoch_metrics() {
 
 	m.resize_commit_count = g.timing.resize_count;
 
-	m.resize_cooldown_remaining = g.lb.resize_cooldown;
 	m.rebalance_cooldown_remaining = g.lb.same_size_rebalance_cooldown;
-	if (g.lb.resize_cooldown > 0) {
-		g.lb.resize_cooldown--;
-	}
 	if (g.lb.same_size_rebalance_cooldown > 0) {
 		g.lb.same_size_rebalance_cooldown--;
 	}
@@ -1934,7 +1930,7 @@ void Resizer::commit_phase() {
 	g.timing.resize_count++;
 }
 
-ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
+ResizeDecision run_local_resize_decision(const EpochMetrics& m, bool in_resize_cooldown) {
 
 	ResizeDecision decision;
 
@@ -1966,6 +1962,13 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 		}
 	}
 
+	if (in_resize_cooldown) {
+
+		decision.vote = MAL_VOTE_KEEP;
+		decision.target_active_size = -1;
+		return decision;
+	}
+
 	decision = g.cfg.decide_resize_func(m);
 
 	if (decision.vote != MAL_VOTE_KEEP && decision.vote != MAL_VOTE_RESIZE && decision.vote != MAL_VOTE_ABSTAIN) {
@@ -1978,6 +1981,18 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 
 		MAL_LOG_L(MAL_LOG_WARN, "EPOCH", "Decision returned invalid target=%d (valid range 1..%d), abstaining", decision.target_active_size, g.comm.u_size);
 		decision.vote = MAL_VOTE_ABSTAIN;
+	}
+
+	if (decision.next_epoch_ms < 0) {
+
+		MAL_LOG_L(MAL_LOG_WARN, "EPOCH", "Decision returned invalid next_epoch_ms=%d, ignoring", decision.next_epoch_ms);
+		decision.next_epoch_ms = 0;
+	}
+
+	if (decision.vote == MAL_VOTE_RESIZE && decision.target_active_size == m.active_n && m.rebalance_cooldown_remaining > 0) {
+
+		MAL_LOG_L(MAL_LOG_DEBUG, "EPOCH", "Rebalance vote in cooldown (%d epochs left), keeping", m.rebalance_cooldown_remaining);
+		decision.vote = MAL_VOTE_KEEP;
 	}
 
 	g.lb.last_decision_settled = decision.vote != MAL_VOTE_ABSTAIN && decision.settled;
@@ -1995,6 +2010,7 @@ ResizeDecision run_local_resize_decision(const EpochMetrics& m) {
 struct ResizeConsensus {
 
 	bool should_resize{false};
+	bool skip_cooldown{false};
 	int target{-1};
 	int active_size{-1};
 	unsigned long long local_decision_epoch{0};
@@ -2012,6 +2028,12 @@ ResizeConsensus resize_consensus() {
 	ResizeConsensus out;
 
 	EpochMetrics m = gather_epoch_metrics();
+
+	const bool in_resize_cooldown = (g.lb.resize_cooldown > 0);
+
+	if (in_resize_cooldown) {
+		g.lb.resize_cooldown--;
+	}
 
 	const long long local_finalize = g.sync.finalize_requested.load(std::memory_order_acquire) ? 1LL : 0LL;
 	long long any_finalize_probe = 0;
@@ -2031,7 +2053,7 @@ ResizeConsensus resize_consensus() {
 
 	const unsigned long long pre_decision_epoch = g.sync.compute_epoch.load(std::memory_order_acquire);
 	const bool is_active = (g.comm.active != MPI_COMM_NULL);
-	ResizeDecision local_decision = is_active ? run_local_resize_decision(m) : ResizeDecision{};
+	ResizeDecision local_decision = is_active ? run_local_resize_decision(m, in_resize_cooldown) : ResizeDecision{};
 	const unsigned long long post_decision_epoch = g.sync.compute_epoch.load(std::memory_order_acquire);
 	const unsigned long long decision_epoch = std::max(pre_decision_epoch, post_decision_epoch);
 	out.local_decision_epoch = decision_epoch;
@@ -2047,11 +2069,27 @@ ResizeConsensus resize_consensus() {
 	const long long neutral = LLONG_MIN / 2;
 	const long long local_vote = (long long)local_decision.vote;
 	const long long local_target = (long long)local_decision.target_active_size;
+	const long long local_next_epoch_ms = is_active ? (long long)local_decision.next_epoch_ms : 0LL;
+	const long long local_skip_cooldown = local_decision.skip_cooldown ? 1LL : 0LL;
 
-	long long reduce_in[9] = {local_active, local_finalize, local_done, local_gen, -local_gen, is_active ? local_vote : neutral, is_active ? -local_vote : neutral, is_active ? local_target : neutral, is_active ? -local_target : neutral};
-	long long reduce_out[9] = {};
+	long long reduce_in[11] = {local_active, local_finalize, local_done, local_gen, -local_gen, is_active ? local_vote : neutral, is_active ? -local_vote : neutral, is_active ? local_target : neutral, is_active ? -local_target : neutral, local_next_epoch_ms, is_active ? -local_skip_cooldown : neutral};
+	long long reduce_out[11] = {};
 
-	MPI_Allreduce(reduce_in, reduce_out, 9, MPI_LONG_LONG, MPI_MAX, g.comm.universe);
+	MPI_Allreduce(reduce_in, reduce_out, 11, MPI_LONG_LONG, MPI_MAX, g.comm.universe);
+
+	const long long next_epoch_ms = std::min(reduce_out[9], (long long)INT_MAX);
+
+	if (next_epoch_ms > 0 && next_epoch_ms != g.cfg.epoch_ms.load(std::memory_order_relaxed)) {
+
+		if (g.comm.u_rank == 0) {
+
+			MAL_LOG_L(MAL_LOG_DEBUG, "EPOCH", "Epoch interval %d -> %lld ms", g.cfg.epoch_ms.load(std::memory_order_relaxed), next_epoch_ms);
+		}
+
+		g.cfg.epoch_ms.store((int)next_epoch_ms, std::memory_order_relaxed);
+	}
+
+	out.skip_cooldown = (-reduce_out[10] == 1);
 
 	const long long any_finalize = reduce_out[1];
 	const long long any_done = reduce_out[2];
@@ -2277,6 +2315,13 @@ bool prepare_resize_if_needed() {
 	g.sync.notify();
 
 	resizer.commit_phase();
+
+	if (consensus.skip_cooldown) {
+
+		MAL_LOG_L(MAL_LOG_DEBUG, "EPOCH", "Cooldown skipped by decision");
+		g.lb.resize_cooldown = 0;
+		g.lb.same_size_rebalance_cooldown = 0;
+	}
 
 	g.sync.resize_pending.store(false, std::memory_order_release);
 
@@ -2608,7 +2653,7 @@ void progress_thread() {
 
 			worker_self_sample();
 
-			next_resize_check = now + std::chrono::milliseconds(epoch_ms);
+			next_resize_check = now + std::chrono::milliseconds(effective_epoch_interval_ms());
 		}
 
 		if (g.sync.stop.load(std::memory_order_acquire)) {
