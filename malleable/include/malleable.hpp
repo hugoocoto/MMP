@@ -239,7 +239,8 @@ struct ResizeDecision {
 // NOTE: Throughputs in iterations/s, times in seconds
 struct EpochMetrics {
 
-	double global_thr{0.0}; // Sum of the active ranks' throughput in this epoch
+	double global_thr{0.0}; // Sum of the active ranks' throughput since the work was last redistributed (resize, rebalance, loop start; every epoch in mal_step() kernels)
+	double epoch_thr{0.0}; // Sum of the active ranks' throughput in this epoch alone (since the last redistribution if it happened during the epoch)
 	double global_remaining{0.0}; // Iterations left on all ranks (includes steps declared with mal_loop_horizon())
 	int active_n{0}; // Current number of active ranks
 	bool any_has_loop{false}; // At least one rank is running a malleable loop

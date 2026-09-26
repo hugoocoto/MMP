@@ -582,6 +582,11 @@ struct MalState {
 		double epoch_start_time{0.0};
 		long epoch_assigned{0};
 
+		// Last gather_epoch_metrics() call, to measure the throughput of one epoch
+		double last_gather_time{0.0};
+		double last_gather_start{0.0}; // epoch_start_time at that call
+		long last_gather_done{0};
+
 		int resize_cooldown{0};
 		int same_size_rebalance_cooldown{0};
 		int prev_resize_from{0};

@@ -120,9 +120,20 @@ EpochMetrics gather_epoch_metrics() {
 		}
 	}
 
-	const double my_elapsed = MPI_Wtime() - g.lb.epoch_start_time;
+	const double now = MPI_Wtime();
+	const double my_elapsed = now - g.lb.epoch_start_time;
 	const long my_done = std::max(0L, g.lb.epoch_assigned - (long)local_rem);
 	const double my_thr = (my_elapsed > kEpsElapsed && my_done > 0) ? (double)my_done / my_elapsed : 0.0;
+
+	// This epoch alone: the difference since the last call, or the whole window if the work was redistributed since
+	const bool same_window = (g.lb.epoch_start_time == g.lb.last_gather_start);
+	const long my_epoch_done = same_window ? my_done - g.lb.last_gather_done : my_done;
+	const double my_epoch_elapsed = same_window ? now - g.lb.last_gather_time : my_elapsed;
+	const double my_epoch_thr = (g.comm.active != MPI_COMM_NULL && my_epoch_elapsed > kEpsElapsed && my_epoch_done > 0) ? (double)my_epoch_done / my_epoch_elapsed : 0.0;
+
+	g.lb.last_gather_time = now;
+	g.lb.last_gather_start = g.lb.epoch_start_time;
+	g.lb.last_gather_done = my_done;
 	const double my_active_n = (double)g.comm.a_size;
 
 	const double my_rem_time = (my_thr > kEpsThroughput) ? local_rem / my_thr : 0.0;
@@ -140,9 +151,9 @@ EpochMetrics gather_epoch_metrics() {
 		local_rem_total += (double)step_slice * (double)(iter_horizon - 1);
 	}
 
-	double sum_in[3] = {local_rem_total, my_thr, my_rem_time};
-	double sum_out[3] = {0.0, 0.0, 0.0};
-	MPI_Allreduce(sum_in, sum_out, 3, MPI_DOUBLE, MPI_SUM, g.comm.universe);
+	double sum_in[4] = {local_rem_total, my_thr, my_rem_time, my_epoch_thr};
+	double sum_out[4] = {0.0, 0.0, 0.0, 0.0};
+	MPI_Allreduce(sum_in, sum_out, 4, MPI_DOUBLE, MPI_SUM, g.comm.universe);
 
 	const double gate_elapsed_in = (g.comm.active != MPI_COMM_NULL) ? my_elapsed : -1.0;
 	const double neg_thr_in = (g.comm.active != MPI_COMM_NULL && my_thr > kEpsThroughput) ? -my_thr : -1e300;
@@ -154,6 +165,7 @@ EpochMetrics gather_epoch_metrics() {
 	m.global_remaining = sum_out[0];
 	m.global_thr = sum_out[1];
 	m.sum_rem_time = sum_out[2];
+	m.epoch_thr = sum_out[3];
 	m.active_n = (int)std::lround(max_out[0]);
 	m.any_has_loop = (max_out[1] > 0.5);
 	m.max_thr = max_out[2];
